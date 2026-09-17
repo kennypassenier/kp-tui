@@ -12,9 +12,13 @@ use ratatui::{
     layout::{Alignment, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Clear, Paragraph, Widget},
+    widgets::{Block, Borders, Clear, Paragraph, Widget},
 };
 
+use crate::anatomy::Texture;
+use crate::color::{ColorDepth, Rgb, Role};
+use crate::effects::{self, mix};
+use crate::fx::Motion;
 use crate::logs::{LogBuffer, Severity};
 use crate::theme::Theme;
 use crate::widgets::Panel;
@@ -586,4 +590,269 @@ impl Widget for LogPane<'_> {
             &mut state,
         );
     }
+}
+
+// ── The theme's own motion ──────────────────────────────────────────────
+
+/// The ground a register textures, and what crosses it.
+///
+/// DI9 gives every theme a static texture layer — scanlines, a drafting
+/// grid, halftone dots, carbon twill — between 2 % and 6 % alpha. A cell
+/// grid cannot carry a 1px line, so the texture here is a tint on whole
+/// cells: the same rhythm, at a little under the CSS alpha, in the only
+/// resolution a terminal has. A cell row is fourteen pixels where the
+/// register's line is one, so the same alpha over the same share of rows
+/// reads louder here than in a browser; 4.5 % is where it stops reading as
+/// stripes and starts reading as a ground. Sixteen-colour terminals get no texture at all rather
+/// than a wrong one.
+pub struct Surface<'a> {
+    theme: &'a Theme,
+    /// The colour the texture sits on — a page's `--background`, a card's
+    /// `--card`.
+    ground: Rgb,
+    elapsed_ms: u32,
+    motion: Motion,
+    id: u64,
+}
+
+impl<'a> Surface<'a> {
+    pub fn new(theme: &'a Theme, ground: Rgb) -> Self {
+        Surface {
+            theme,
+            ground,
+            elapsed_ms: 0,
+            motion: Motion::Full,
+            id: 0,
+        }
+    }
+
+    pub fn at(mut self, elapsed_ms: u32, motion: Motion) -> Self {
+        (self.elapsed_ms, self.motion) = (elapsed_ms, motion);
+        self
+    }
+
+    /// Which panel this is, so two panels do not sweep in lockstep.
+    pub fn id(mut self, id: u64) -> Self {
+        self.id = id;
+        self
+    }
+
+    /// How strongly a cell is tinted, 0.0 for a cell the texture misses.
+    fn weight(&self, dx: u16, dy: u16) -> f32 {
+        match self.theme.a.fx.texture {
+            Texture::None => 0.0,
+            Texture::Scanline { every } if every > 0 => {
+                dy.is_multiple_of(every) as u8 as f32 * 0.045
+            }
+            Texture::Grid { cols, rows } => {
+                let col = cols > 0 && dx.is_multiple_of(cols);
+                let row = rows > 0 && dy.is_multiple_of(rows);
+                if col || row { 0.045 } else { 0.0 }
+            }
+            Texture::Dots { every } if every > 0 => {
+                (dy.is_multiple_of(2) && dx.is_multiple_of(every)) as u8 as f32 * 0.04
+            }
+            Texture::Diagonal { every } if every > 0 => {
+                (dx + dy).is_multiple_of(every) as u8 as f32 * 0.04
+            }
+            _ => 0.0,
+        }
+    }
+
+    pub fn paint(self, area: Rect, buf: &mut Buffer) {
+        if self.theme.depth == ColorDepth::Ansi16 || area.is_empty() {
+            return;
+        }
+        let p = self.theme.id.palette();
+        let lit = self
+            .theme
+            .a
+            .fx
+            .sweep
+            .and_then(|s| s.row(area.height, self.elapsed_ms, self.id, self.motion));
+        for dy in 0..area.height {
+            for dx in 0..area.width {
+                let w = self.weight(dx, dy);
+                // The sweep is brighter than the texture and takes the
+                // theme's own primary, which is what `kp-alarm-sweep`
+                // paints in `css/cyberpunk-register.css`.
+                let (towards, w) = if lit == Some(dy) {
+                    (p.primary, 0.22)
+                } else if w == 0.0 {
+                    continue;
+                } else {
+                    (p.foreground, w)
+                };
+                let bg = self
+                    .theme
+                    .depth
+                    .resolve(Role::Surface, mix(self.ground, towards, w));
+                buf[(area.x + dx, area.y + dy)].set_bg(bg);
+            }
+        }
+    }
+}
+
+/// The theme's attention treatment: a panel that strikes as it arrives,
+/// a headline that comes apart, a frame that breathes — whichever of the
+/// three that register declares, and nothing for the ones that declare
+/// none.
+///
+/// Homelab paints its own alarm state red and leaves it there
+/// (`client/src/tui/view/mod.rs`); here the theme decides, because the
+/// package already decided once, per theme, in `research/alarm-per-theme/`.
+pub struct AlarmPanel<'a> {
+    theme: &'a Theme,
+    title: &'a str,
+    body: &'a str,
+    elapsed_ms: u32,
+    motion: Motion,
+}
+
+impl<'a> AlarmPanel<'a> {
+    pub fn new(theme: &'a Theme, title: &'a str, body: &'a str) -> Self {
+        AlarmPanel {
+            theme,
+            title,
+            body,
+            elapsed_ms: 0,
+            motion: Motion::Full,
+        }
+    }
+
+    pub fn at(mut self, elapsed_ms: u32, motion: Motion) -> Self {
+        (self.elapsed_ms, self.motion) = (elapsed_ms, motion);
+        self
+    }
+
+    /// The headline as it is drawn this frame, glitched if the theme
+    /// glitches. Public so a test can read it without a buffer.
+    pub fn headline(&self) -> String {
+        let label = self.theme.label(self.title);
+        match self.theme.a.fx.alarm.glitch {
+            Some(g) => g.text(&label, self.elapsed_ms, 0xA1, self.motion),
+            None => label,
+        }
+    }
+}
+
+impl Widget for AlarmPanel<'_> {
+    fn render(self, area: Rect, buf: &mut Buffer) {
+        let th = self.theme;
+        let (p, alarm) = (th.id.palette(), th.a.fx.alarm);
+        let strike = alarm
+            .strike
+            .and_then(|s| s.at(self.elapsed_ms, self.motion));
+        // The strike's opacity, in a terminal, is how far the ink has come
+        // from the plate towards its own colour.
+        let t = strike.map(|f| f.ink).unwrap_or(1.0);
+        let area = match strike.map(|f| f.kick).unwrap_or(0) {
+            k if k < 0 && area.x > 0 => Rect {
+                x: area.x - 1,
+                ..area
+            },
+            k if k > 0 => Rect {
+                x: area.x + 1,
+                width: area.width.saturating_sub(1),
+                ..area
+            },
+            _ => area,
+        };
+        // The glow: the frame breathing between the destructive colour and
+        // the plate, at the period the register declares.
+        let frame = match alarm.glow_ms {
+            Some(ms) => effects::pulse(p.destructive, p.card, self.elapsed_ms, ms, self.motion),
+            None => p.destructive,
+        };
+        // The headline takes the destructive colour itself, not the ink
+        // that goes ON it: the plate here is the card, the way
+        // `.kp-alarm__title` sits on the notice's own ground.
+        let ink = mix(p.card, p.destructive, t);
+        let block = Block::new()
+            .borders(Borders::ALL)
+            .border_set(th.a.border)
+            .border_style(Style::new().fg(th.depth.resolve(Role::Line, mix(p.card, frame, t))))
+            .style(Style::new().bg(th.c.card));
+        let inner = block.inner(area);
+        block.render(area, buf);
+        let head = Style::new()
+            .fg(th.depth.resolve(Role::Ink, ink))
+            .add_modifier(th.a.title_modifier);
+        Paragraph::new(vec![
+            Line::from(Span::styled(self.headline(), head)),
+            Line::from(Span::styled(
+                self.body.to_string(),
+                Style::new().fg(th
+                    .depth
+                    .resolve(Role::Ink, mix(p.card, p.card_foreground, t))),
+            )),
+        ])
+        .render(inner, buf);
+    }
+}
+
+/// The bottom line of telemetry, sliding. Homelab's `ticker_text` joins
+/// its segments with a hard-coded `  ::  `; this one uses the divider the
+/// theme already declares between its tabs, so the same line reads as
+/// `│` in formal and as `▐` in the registers that plate their tabs.
+pub struct Ticker<'a> {
+    theme: &'a Theme,
+    segments: &'a [String],
+    elapsed_ms: u32,
+    motion: Motion,
+    cps: f32,
+}
+
+impl<'a> Ticker<'a> {
+    pub fn new(theme: &'a Theme, segments: &'a [String]) -> Self {
+        Ticker {
+            theme,
+            segments,
+            elapsed_ms: 0,
+            motion: Motion::Full,
+            // Ten characters a second: homelab's ticker moves one character
+            // every three ticks at 30 fps, which is the same speed.
+            cps: 10.0,
+        }
+    }
+
+    pub fn at(mut self, elapsed_ms: u32, motion: Motion) -> Self {
+        (self.elapsed_ms, self.motion) = (elapsed_ms, motion);
+        self
+    }
+
+    pub fn cps(mut self, cps: f32) -> Self {
+        self.cps = cps;
+        self
+    }
+
+    pub fn text(&self, width: u16) -> String {
+        effects::marquee(
+            self.segments,
+            width,
+            self.elapsed_ms,
+            self.cps,
+            self.theme.a.tab_divider,
+            self.motion,
+        )
+    }
+}
+
+impl Widget for Ticker<'_> {
+    fn render(self, area: Rect, buf: &mut Buffer) {
+        let text = self.text(area.width);
+        Paragraph::new(Line::from(Span::styled(
+            text,
+            Style::new()
+                .bg(self.theme.c.muted)
+                .fg(self.theme.c.muted_foreground),
+        )))
+        .render(area, buf);
+    }
+}
+
+/// The frame of the theme's spinner for this moment. `--kp-spinner-duration`
+/// is 900 ms in `css/components.css` and no register overrides it.
+pub fn spinner(theme: &Theme, elapsed_ms: u32, motion: Motion) -> &'static str {
+    theme.a.fx.spinner.frame(elapsed_ms, 900, motion)
 }

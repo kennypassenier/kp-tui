@@ -1,8 +1,14 @@
-//! `kp-tui-demo [--screen dashboard|components] [--theme NAME] [--colors truecolor|256|16]
-//!  [--reduced-motion] [--config PATH] [--fps N] [--synthetic-logs] [--exit-after SECONDS]`
+//! `kp-tui-demo [--screen dashboard|components|console|effects] [--theme NAME]
+//!  [--colors truecolor|256|16] [--reduced-motion] [--config PATH] [--fps N]
+//!  [--synthetic-logs] [--exit-after SECONDS] [--shot] [--at MS] [--size WxH]`
 //!
 //! `--exit-after` is for measuring: the demo quits by itself and prints its
 //! own CPU time, frame count and mean draw time to stderr.
+//!
+//! `--shot` needs no terminal: it draws the chosen screen once, at `--at`
+//! milliseconds into its motion, and prints it as ANSI — one block per
+//! theme in `--theme a,b,c`. That is the same code path the demo runs, so
+//! a picture of it cannot drift from what the demo shows.
 
 use std::{
     env, fs, io,
@@ -15,6 +21,7 @@ mod app;
 mod config;
 
 use app::{App, Screen};
+mod shot;
 use config::Config;
 use kp_tui::{
     ThemeId,
@@ -58,11 +65,23 @@ fn main() -> io::Result<()> {
         .map(Duration::from_secs_f64);
 
     let mut app = App::new(cfg, depth, path);
-    app.screen = if arg("--screen").as_deref() == Some("components") {
-        Screen::Components
-    } else {
-        Screen::Dashboard
+    app.screen = match arg("--screen").as_deref() {
+        Some("components") => Screen::Components,
+        Some("console") => Screen::Console,
+        Some("effects") => Screen::Effects,
+        _ => Screen::Dashboard,
     };
+    if flag("--shot") {
+        let size = arg("--size")
+            .and_then(|v| {
+                let (w, h) = v.split_once('x')?;
+                Some((w.parse().ok()?, h.parse().ok()?))
+            })
+            .unwrap_or((118, 30));
+        let at = arg("--at").and_then(|v| v.parse().ok()).unwrap_or(0);
+        let themes = arg("--theme").unwrap_or_else(|| "cyberpunk,terminal".into());
+        return shot::print(&mut app, &themes, size, at);
+    }
     app.dash.fps = fps;
 
     let mut feed = if flag("--synthetic-logs") {

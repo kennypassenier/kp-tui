@@ -18,7 +18,9 @@ use kp_tui::color::ColorDepth;
 use kp_tui::dashboard::{self, Dashboard};
 use kp_tui::fx::{self, Motion};
 use kp_tui::widgets::{Button, ButtonKind, ButtonState, Panel, RevealText, ThemedTabs};
-use kp_tui::{Field, KeyHints, Meter, Popup, PopupKind, Theme};
+use kp_tui::{
+    AlarmPanel, Field, KeyHints, Meter, Popup, PopupKind, Surface, Texture, Theme, Ticker, spinner,
+};
 
 pub const TABS: [&str; 3] = ["Overview", "Deployments", "Settings"];
 
@@ -72,6 +74,10 @@ pub enum Screen {
     /// the theme's caret, meters with their thresholds, and one keymap
     /// drawn as a footer and as an overlay [docs/HOMELAB_INVENTORY.md].
     Console,
+    /// The theme's own motion: the texture on the ground, the sweep where
+    /// a register declares one, the alarm, the spinner and the ticker —
+    /// homelab's six hand-rolled effects, answered by the theme.
+    Effects,
 }
 
 pub struct App {
@@ -92,6 +98,12 @@ pub struct App {
     /// pointer, so focus is where it lands (GUESS, as with the focus
     /// modifier).
     pub charge_ms: Option<u32>,
+    /// Milliseconds since the alarm was raised: the strike and the glitch
+    /// read it, and `a` sets it back to zero.
+    pub alarm_ms: u32,
+    /// The ticker's segments, rebuilt from the live sample each tick, so
+    /// the line that slides past is this machine and not a fixture.
+    pub ticker: Vec<String>,
     pub config_path: Option<PathBuf>,
     pub message: String,
     pub quit: bool,
@@ -140,6 +152,8 @@ impl App {
             pressed: None,
             reveal_ms: 0,
             charge_ms: None,
+            alarm_ms: 0,
+            ticker: Vec::new(),
             config_path,
             message: String::new(),
             quit: false,
@@ -175,6 +189,22 @@ impl App {
         self.reveal_ms = self.reveal_ms.saturating_add(ms);
         self.dash.tick(ms);
         self.charge_ms = self.charge_ms.map(|c| c + ms).filter(|c| *c < CHARGE_MS);
+        self.alarm_ms = self.alarm_ms.saturating_add(ms);
+        self.ticker = match self.dash.history.back() {
+            Some((_, s)) => vec![
+                format!("cpu {:.0}%", s.cpu_total),
+                format!("mem {:.0}%", s.mem_used_pct),
+                format!("load {:.2}", s.load[0]),
+                format!("net {:.0} kB/s in", s.rx_bps / 1000.0),
+                format!("{} log lines", self.dash.logs.len()),
+                format!("draw {:.2} ms", self.dash.draw_ms),
+            ],
+            None => vec![
+                "no sample yet".into(),
+                format!("theme {}", self.theme.id.name()),
+                format!("{} log lines", self.dash.logs.len()),
+            ],
+        };
         if let Some((i, left)) = self.pressed {
             self.pressed = left.checked_sub(ms).filter(|l| *l > 0).map(|l| (i, l));
         }
@@ -189,11 +219,14 @@ impl App {
             KeyCode::Char('t') => self.cycle_theme(),
             KeyCode::Char('m') => self.toggle_motion(),
             KeyCode::Char('r') => self.reveal_ms = 0,
+            // The alarm strikes once, so it needs a key to strike again.
+            KeyCode::Char('a') => self.alarm_ms = 0,
             KeyCode::Char('s') => {
                 self.screen = match self.screen {
                     Screen::Dashboard => Screen::Components,
                     Screen::Components => Screen::Console,
-                    Screen::Console => Screen::Dashboard,
+                    Screen::Console => Screen::Effects,
+                    Screen::Effects => Screen::Dashboard,
                 };
                 self.reveal_ms = 0;
             }
@@ -258,6 +291,10 @@ impl App {
         }
         if self.screen == Screen::Console {
             self.draw_console(frame);
+            return;
+        }
+        if self.screen == Screen::Effects {
+            self.draw_effects(frame);
             return;
         }
         let th = &self.theme;
@@ -492,6 +529,168 @@ impl App {
         );
     }
 }
+
+impl App {
+    /// The effects screen: everything on it is the theme's, not the
+    /// screen's. homelab's `client/src/tui/fx.rs` writes the same six
+    /// effects against eighteen colour literals and one fixed look.
+    fn draw_effects(&self, frame: &mut Frame) {
+        let th = &self.theme;
+        let motion = self.config.motion;
+        let screen = frame.area();
+        let p = th.id.palette();
+        frame.render_widget(Block::new().style(th.base()), screen);
+        // The ground first: the register's static texture, and the sweep
+        // for the one register that declares one.
+        Surface::new(th, p.background)
+            .at(self.reveal_ms, motion)
+            .paint(screen, frame.buffer_mut());
+
+        let rows = Layout::vertical([
+            Constraint::Length(1),
+            Constraint::Length(5),
+            Constraint::Min(6),
+            Constraint::Length(1),
+            Constraint::Length(1),
+        ])
+        .areas::<5>(screen);
+
+        frame.render_widget(
+            Paragraph::new(Line::from(vec![
+                Span::styled(
+                    th.label("effects"),
+                    Style::new().fg(th.c.primary).add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(
+                    format!("  {} · {}", th.id.name(), describe(th)),
+                    Style::new().fg(th.c.muted_foreground),
+                ),
+            ])),
+            rows[0],
+        );
+
+        // The alarm, as this register raises it.
+        frame.render_widget(
+            AlarmPanel::new(
+                th,
+                "Power lost",
+                "ups on battery · 14 minutes of runtime left",
+            )
+            .at(self.alarm_ms, motion),
+            rows[1],
+        );
+
+        let [left, right] =
+            Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
+                .areas(rows[2]);
+
+        // A card of its own, so the texture is visible on a plate as well
+        // as on the page, and the sweep crosses it on its own clock.
+        let panel = Panel::new(th, "Texture");
+        let inner = panel.block().inner(left);
+        frame.render_widget(panel, left);
+        Surface::new(th, p.card)
+            .at(self.reveal_ms, motion)
+            .id(7)
+            .paint(inner, frame.buffer_mut());
+        frame.render_widget(
+            Paragraph::new(vec![
+                Line::from(Span::styled(
+                    texture_note(th),
+                    Style::new().fg(th.c.card_foreground),
+                )),
+                Line::from(Span::styled(
+                    match th.a.fx.sweep {
+                        Some(s) => format!(
+                            "a lit row crosses every {:.0} s",
+                            s.period_ms as f32 / 1000.0
+                        ),
+                        None => "nothing crosses it: the register's texture is static".into(),
+                    },
+                    Style::new().fg(th.c.muted_foreground),
+                )),
+            ])
+            .wrap(Wrap { trim: true }),
+            inner,
+        );
+
+        // The spinner turning, beside the reveal the theme already had.
+        let panel = Panel::new(th, "Waiting");
+        let inner = panel.block().inner(right);
+        frame.render_widget(panel, right);
+        frame.render_widget(
+            Paragraph::new(vec![
+                Line::from(vec![
+                    Span::styled(
+                        spinner(th, self.reveal_ms, motion),
+                        Style::new().fg(th.c.primary),
+                    ),
+                    Span::styled(
+                        format!("  {}", "deploying 2.4 to both hosts"),
+                        Style::new().fg(th.c.card_foreground),
+                    ),
+                ]),
+                Line::from(Span::styled(
+                    format!(
+                        "spinner {:?} · glow {} · glitch {}",
+                        th.a.fx.spinner,
+                        match th.a.fx.alarm.glow_ms {
+                            Some(ms) => format!("{ms} ms"),
+                            None => "none".into(),
+                        },
+                        if th.a.fx.alarm.glitch.is_some() {
+                            "yes"
+                        } else {
+                            "no"
+                        }
+                    ),
+                    Style::new().fg(th.c.muted_foreground),
+                )),
+            ])
+            .wrap(Wrap { trim: true }),
+            inner,
+        );
+
+        frame.render_widget(
+            Ticker::new(th, &self.ticker).at(self.reveal_ms, motion),
+            rows[3],
+        );
+        frame.render_widget(KeyHints::new(th, EFFECT_KEYS), rows[4]);
+    }
+}
+
+/// What this register declares, in one clause, so the screen says what it
+/// is showing rather than only showing it.
+fn describe(th: &Theme) -> String {
+    let alarm = match (th.a.fx.alarm.strike, th.a.fx.alarm.glitch) {
+        (Some(_), Some(_)) => "strikes and comes apart",
+        (Some(_), None) => "strikes",
+        (None, Some(_)) => "comes apart",
+        (None, None) => match th.a.fx.alarm.glow_ms {
+            Some(_) => "settles, then glows",
+            None => "settles, and holds",
+        },
+    };
+    format!("the alarm {alarm}")
+}
+
+fn texture_note(th: &Theme) -> String {
+    match th.a.fx.texture {
+        Texture::None => "no texture layer: this register paints its ground flat".into(),
+        Texture::Scanline { every } => format!("scanlines: one row in {every}"),
+        Texture::Grid { cols, rows } => format!("a drafting grid: {cols} by {rows} cells"),
+        Texture::Dots { every } => format!("halftone dots: one in {every}, every other row"),
+        Texture::Diagonal { every } => format!("a twill: one diagonal in {every}"),
+    }
+}
+
+const EFFECT_KEYS: &[(&str, &str)] = &[
+    ("a", "alarm"),
+    ("s", "screen"),
+    ("t", "theme"),
+    ("m", "motion"),
+    ("q", "quit"),
+];
 
 /// One keymap: the footer and the overlay both read this.
 const CONSOLE_KEYS: &[(&str, &str)] = &[

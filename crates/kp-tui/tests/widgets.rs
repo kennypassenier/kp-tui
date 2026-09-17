@@ -5,14 +5,15 @@
 //! this crate's.
 
 use kp_tui::{
-    ColorDepth, Field, KeyHints, LogPane, Meter, Popup, PopupKind, Theme, ThemeId,
+    AlarmPanel, ColorDepth, Field, KeyHints, LogPane, Meter, Popup, PopupKind, Surface, Theme,
+    ThemeId, Ticker,
     anatomy::Reveal,
     color::Rgb,
     dashboard::rate,
     fx::{self, Motion},
     live, logs,
     logs::{LogBuffer, Severity},
-    source_colour,
+    source_colour, spinner,
     widgets::{Button, ButtonState},
 };
 use ratatui::{buffer::Buffer, layout::Rect, style::Color, widgets::Widget};
@@ -698,4 +699,172 @@ fn the_log_pane_carries_the_source_bar_the_severities_and_a_scrollbar() {
         .map(|s| s.content.to_string())
         .collect();
     assert!(status.contains("paused, 1 new"), "{status}");
+}
+
+#[test]
+fn a_texture_tints_the_rhythm_its_register_paints() {
+    // terminal: scanlines every third row (1px lines over a 3px repeat in
+    // `css/terminal-register.css`). The lit rows differ from the ground;
+    // the rest are the ground exactly.
+    let th = Theme::new(ThemeId::TERMINAL, ColorDepth::TrueColor);
+    let ground = ThemeId::TERMINAL.palette().background;
+    let mut buf = Buffer::empty(Rect::new(0, 0, 10, 9));
+    for y in 0..9 {
+        for x in 0..10 {
+            buf[(x, y)].set_bg(rgb(ground));
+        }
+    }
+    Surface::new(&th, ground).paint(buf.area, &mut buf);
+    let tinted: Vec<u16> = (0..9).filter(|y| buf[(0, *y)].bg != rgb(ground)).collect();
+    assert_eq!(tinted, vec![0, 3, 6]);
+
+    // high-contrast declares no texture at all: nothing is touched.
+    let hc = Theme::new(
+        ThemeId::from_name("high-contrast").unwrap(),
+        ColorDepth::TrueColor,
+    );
+    let hg = hc.id.palette().background;
+    let mut plain = Buffer::empty(Rect::new(0, 0, 10, 9));
+    for y in 0..9 {
+        for x in 0..10 {
+            plain[(x, y)].set_bg(rgb(hg));
+        }
+    }
+    Surface::new(&hc, hg).paint(plain.area, &mut plain);
+    assert!((0..9).all(|y| plain[(0, y)].bg == rgb(hg)));
+
+    // A sixteen-colour terminal cannot carry a 6 % tint, so it gets none.
+    let low = Theme::new(ThemeId::TERMINAL, ColorDepth::Ansi16);
+    let mut small = Buffer::empty(Rect::new(0, 0, 10, 9));
+    Surface::new(&low, ground).paint(small.area, &mut small);
+    assert!((0..9).all(|y| small[(0, y)].bg == Color::Reset));
+}
+
+#[test]
+fn only_the_register_that_declares_a_sweep_sweeps() {
+    let sweeping: Vec<&str> = ThemeId::ALL
+        .iter()
+        .filter(|id| id.anatomy().fx.sweep.is_some())
+        .map(|id| id.name())
+        .collect();
+    // `kp-alarm-sweep` at 6000ms is cyberpunk's alone; terminal's raster is
+    // static because DI5 refused the moving one.
+    assert_eq!(sweeping, vec!["cyberpunk"]);
+
+    let th = Theme::new(ThemeId::CYBERPUNK, ColorDepth::TrueColor);
+    let ground = ThemeId::CYBERPUNK.palette().background;
+    let rows = |ms: u32, motion| {
+        let mut buf = Buffer::empty(Rect::new(0, 0, 8, 12));
+        Surface::new(&th, ground)
+            .at(ms, motion)
+            .paint(buf.area, &mut buf);
+        (0..12).map(|y| buf[(1, y)].bg).collect::<Vec<_>>()
+    };
+    let frames: Vec<Vec<Color>> = (0..6000)
+        .step_by(120)
+        .map(|ms| rows(ms, Motion::Full))
+        .collect();
+    assert!(
+        frames.windows(2).any(|w| w[0] != w[1]),
+        "something crosses the panel"
+    );
+    let still: Vec<Vec<Color>> = (0..6000)
+        .step_by(120)
+        .map(|ms| rows(ms, Motion::Reduced))
+        .collect();
+    assert!(
+        still.windows(2).all(|w| w[0] == w[1]),
+        "reduced motion holds"
+    );
+}
+
+#[test]
+fn the_alarm_is_the_one_its_register_declares() {
+    // cyberpunk strikes and glitches; formal does neither, and its glow is
+    // off ("nothing here glitches, glows, loops or flickers").
+    let cy = Theme::new(ThemeId::CYBERPUNK, ColorDepth::TrueColor);
+    let head = |th: &Theme, ms| {
+        AlarmPanel::new(th, "Power lost", "ups on battery")
+            .at(ms, Motion::Full)
+            .headline()
+    };
+    let plain = cy.label("Power lost");
+    assert_eq!(
+        head(&cy, 3_000),
+        plain,
+        "outside a burst, the line is itself"
+    );
+    assert_ne!(head(&cy, 5_100), plain, "inside one, it comes apart");
+    assert_eq!(
+        AlarmPanel::new(&cy, "Power lost", "")
+            .at(5_100, Motion::Reduced)
+            .headline(),
+        plain
+    );
+
+    let fm = Theme::new(ThemeId::FORMAL, ColorDepth::TrueColor);
+    let flat = fm.label("Power lost");
+    assert!(
+        (0..8_000).step_by(100).all(|ms| head(&fm, ms) == flat),
+        "formal never glitches"
+    );
+    assert!(fm.a.fx.alarm.strike.is_none() && fm.a.fx.alarm.glow_ms.is_none());
+
+    // The strike is over when its keyframe is: the panel settles.
+    let draw = |ms| {
+        let mut buf = Buffer::empty(Rect::new(0, 0, 24, 5));
+        AlarmPanel::new(&cy, "Power lost", "ups on battery")
+            .at(ms, Motion::Full)
+            .render(buf.area, &mut buf);
+        buf
+    };
+    assert_ne!(draw(0), draw(300), "it strikes on the way in");
+    assert_eq!(draw(1_200), draw(2_000), "and then holds");
+}
+
+#[test]
+fn a_ticker_joins_its_segments_with_the_theme_s_own_divider() {
+    let segs = vec!["cpu 12%".to_string(), "disk 61%".to_string()];
+    for id in ThemeId::ALL {
+        let th = Theme::new(id, ColorDepth::TrueColor);
+        let line = Ticker::new(&th, &segs).at(0, Motion::Full).text(40);
+        assert_eq!(line.chars().count(), 40, "{}", id.name());
+        assert!(line.starts_with("cpu 12%"), "{}: {line}", id.name());
+        if !th.a.tab_divider.trim().is_empty() {
+            assert!(
+                line.contains(th.a.tab_divider.trim()),
+                "{}: {line}",
+                id.name()
+            );
+        }
+    }
+    let th = Theme::new(ThemeId::TERMINAL, ColorDepth::TrueColor);
+    let t = Ticker::new(&th, &segs);
+    assert_ne!(
+        t.text(40),
+        Ticker::new(&th, &segs).at(1_000, Motion::Full).text(40)
+    );
+    assert_eq!(
+        Ticker::new(&th, &segs).at(1_000, Motion::Reduced).text(40),
+        Ticker::new(&th, &segs).at(0, Motion::Full).text(40)
+    );
+}
+
+#[test]
+fn every_theme_turns_a_spinner_of_its_own_shape() {
+    for id in ThemeId::ALL {
+        let th = Theme::new(id, ColorDepth::TrueColor);
+        let frames: Vec<&str> = (0..900)
+            .step_by(30)
+            .map(|ms| spinner(&th, ms, Motion::Full))
+            .collect();
+        let first = frames[0];
+        assert!(frames.iter().any(|f| *f != first), "{} turns", id.name());
+        assert!(
+            frames.iter().all(|f| f.chars().count() == 1),
+            "{} stays in one cell",
+            id.name()
+        );
+        assert_eq!(spinner(&th, 450, Motion::Reduced), first, "{}", id.name());
+    }
 }

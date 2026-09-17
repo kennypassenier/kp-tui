@@ -11,6 +11,7 @@ use ratatui::{
 
 use crate::anatomy::{ButtonFace, Reveal};
 use crate::color::{ColorDepth, Rgb, Role};
+use crate::effects::mix;
 use crate::fx::{self, Motion};
 use crate::theme::Theme;
 
@@ -440,11 +441,6 @@ pub fn reveal_spans(
         spans.push(Span::styled(" ".repeat(rest), style));
     }
     spans
-}
-
-pub fn mix(a: Rgb, b: Rgb, t: f32) -> Rgb {
-    let l = |x: u8, y: u8| (x as f32 + (y as f32 - x as f32) * t).round() as u8;
-    Rgb(l(a.0, b.0), l(a.1, b.1), l(a.2, b.2))
 }
 
 impl Widget for RevealText<'_> {

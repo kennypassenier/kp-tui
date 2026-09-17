@@ -6,6 +6,8 @@
 //! states, so a reviewer knows which ones to judge.
 
 use crossterm::cursor::SetCursorStyle;
+
+use crate::effects::{Glitch, Spinner, Strike, Sweep};
 use ratatui::{style::Modifier, symbols::border};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -41,6 +43,69 @@ pub enum ButtonFace {
     Bracket,
 }
 
+/// The static texture a register paints on its ground (DI9), as near as a
+/// cell grid comes to it. A wash of one dim glyph, never a colour change:
+/// the CSS layers sit between 2 % and 6 % alpha, and anything louder in a
+/// terminal reads as content.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Texture {
+    /// No texture layer, or one too fine for a cell (grain, contour).
+    None,
+    /// Dim every `every`-th row: the scanline registers.
+    Scanline { every: u16 },
+    /// A dim rule every `cols` columns and every `rows` rows; `0` leaves
+    /// that axis alone.
+    Grid { cols: u16, rows: u16 },
+    /// A dim dot every `every` cells, on alternating rows: halftone, dot
+    /// grid, checkerboard.
+    Dots { every: u16 },
+    /// A dim diagonal every `every` cells: twill, chevrons.
+    Diagonal { every: u16 },
+}
+
+/// The theme's attention treatment, which every register answers for
+/// itself. The package baseline (`css/components.css`, `kp-alarm-*`) is a
+/// settle of 240/520/480 ms once and a glow at 1400 ms
+/// `infinite alternate`; a register that sets the glow to alpha 0 has no
+/// loop left, and `glow_ms: None` says so.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Alarm {
+    /// The panel striking as it arrives.
+    pub strike: Option<Strike>,
+    /// Wrong characters through the headline.
+    pub glitch: Option<Glitch>,
+    /// The breathing glow's period; `None` for the registers where it is
+    /// invisible or refused.
+    pub glow_ms: Option<u32>,
+}
+
+/// What moves, and what turns, in a theme. One field on the anatomy so a
+/// widget asks the theme rather than naming an effect of its own.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Fx {
+    pub texture: Texture,
+    /// A lit row crossing a panel. Only for a register that declares a
+    /// sweep; every other texture here is static, and DI5 refused a loop
+    /// in most of them.
+    pub sweep: Option<Sweep>,
+    pub alarm: Alarm,
+    pub spinner: Spinner,
+}
+
+/// The baseline every register inherits until it says otherwise.
+pub const BASELINE_ALARM: Alarm = Alarm {
+    strike: None,
+    glitch: None,
+    glow_ms: Some(1400),
+};
+
+/// The baseline with the glow off, for a register that sets its alpha to 0.
+pub const STILL_ALARM: Alarm = Alarm {
+    strike: None,
+    glitch: None,
+    glow_ms: None,
+};
+
 #[derive(Clone, Copy, Debug)]
 pub struct Anatomy {
     pub border: border::Set<'static>,
@@ -65,6 +130,8 @@ pub struct Anatomy {
     pub selected_tab_modifier: Modifier,
     pub cursor: SetCursorStyle,
     pub reveal: Reveal,
+    /// What moves: the texture, the alarm, the spinner.
+    pub fx: Fx,
 }
 
 /// cyberpunk's notch: the bottom-right corner cut on the diagonal
@@ -127,6 +194,14 @@ pub const FORMAL: Anatomy = Anatomy {
     cursor: SetCursorStyle::SteadyBar,
     // anatomy.md "The headline arrives whole"; register: opacity 450ms.
     reveal: Reveal::Arrive { ms: 450 },
+    // formal-register.css:29 "nothing here glitches, glows, loops or
+    // flickers"; the laid-paper grain is 3.5 % and finer than a cell.
+    fx: Fx {
+        texture: Texture::None,
+        sweep: None,
+        alarm: STILL_ALARM,
+        spinner: Spinner::Braille,
+    },
 };
 
 /// cyberpunk. Signal yellow on a void; square or notched; a machine voice.
@@ -164,6 +239,27 @@ pub const CYBERPUNK: Anatomy = Anatomy {
         lead_ms: 260,
         swap: 0.5,
     },
+    // cyberpunk-register.css:62 scanlines 1px/3px;
+    // kp-alarm-cyberpunk-flicker 600ms [scope-100]; kp-alarm-jitter/slice
+    // at 5000ms and kp-alarm-sweep at 6000ms. The glow is the sweep here,
+    // so no separate one.
+    fx: Fx {
+        texture: Texture::Scanline { every: 3 },
+        sweep: Some(Sweep {
+            period_ms: 6000,
+            sweep_ms: 1200,
+        }),
+        alarm: Alarm {
+            strike: Some(Strike { ms: 600 }),
+            glitch: Some(Glitch {
+                every_ms: 5000,
+                hold_ms: 300,
+                share: 0.35,
+            }),
+            glow_ms: None,
+        },
+        spinner: Spinner::Half,
+    },
 };
 
 /// terminal. A phosphor CRT that accepts a terminal's constraints.
@@ -197,6 +293,15 @@ pub const TERMINAL: Anatomy = Anatomy {
     cursor: SetCursorStyle::BlinkingBlock,
     // terminal-register.css `--kp-decipher-cps: 29.41`, the `type` routine.
     reveal: Reveal::Type { cps: 29.41 },
+    // terminal-register.css:31 static raster scanlines 1px/3px at 6 % — and
+    // "flicker at .15s infinite was measured and refused (DI5)", so the
+    // raster does not move.
+    fx: Fx {
+        texture: Texture::Scanline { every: 3 },
+        sweep: None,
+        alarm: BASELINE_ALARM,
+        spinner: Spinner::Ascii,
+    },
 };
 
 /// light. Proposed in research/ratatui/ANATOMY_PROPOSAL.md, which cites the
@@ -216,6 +321,13 @@ pub const LIGHT: Anatomy = Anatomy {
     selected_tab_modifier: Modifier::UNDERLINED,
     cursor: SetCursorStyle::SteadyBar,
     reveal: Reveal::Arrive { ms: 620 },
+    // light-register.css: millimetre grid at 24px and 120px, 5 %.
+    fx: Fx {
+        texture: Texture::Grid { cols: 12, rows: 6 },
+        sweep: None,
+        alarm: BASELINE_ALARM,
+        spinner: Spinner::Braille,
+    },
 };
 
 /// dark. Proposed in research/ratatui/ANATOMY_PROPOSAL.md, which cites the
@@ -238,6 +350,13 @@ pub const DARK: Anatomy = Anatomy {
         ms: 640,
         stagger_ms: 28,
     },
+    // dark-register.css: a 1px instrument grid every 5.5rem at 4.5 %.
+    fx: Fx {
+        texture: Texture::Grid { cols: 22, rows: 11 },
+        sweep: None,
+        alarm: BASELINE_ALARM,
+        spinner: Spinner::Quadrant,
+    },
 };
 
 /// synthwave. Proposed in research/ratatui/ANATOMY_PROPOSAL.md, which cites the
@@ -257,6 +376,14 @@ pub const SYNTHWAVE: Anatomy = Anatomy {
     selected_tab_modifier: Modifier::UNDERLINED,
     cursor: SetCursorStyle::SteadyBlock,
     reveal: Reveal::Arrive { ms: 700 },
+    // synthwave-register.css:23 "Nothing here flickers"; the 2px row raster
+    // and the 3px RGB stripe are static.
+    fx: Fx {
+        texture: Texture::Scanline { every: 2 },
+        sweep: None,
+        alarm: BASELINE_ALARM,
+        spinner: Spinner::Bar,
+    },
 };
 
 /// pastel. Proposed in research/ratatui/ANATOMY_PROPOSAL.md, which cites the
@@ -276,6 +403,14 @@ pub const PASTEL: Anatomy = Anatomy {
     selected_tab_modifier: Modifier::UNDERLINED,
     cursor: SetCursorStyle::SteadyBar,
     reveal: Reveal::Arrive { ms: 650 },
+    // pastel-register.css:1309 the sticker lands, the plate fills and the
+    // overprint registers — 420/420/650 ms, "Nothing loops."
+    fx: Fx {
+        texture: Texture::Dots { every: 3 },
+        sweep: None,
+        alarm: STILL_ALARM,
+        spinner: Spinner::Braille,
+    },
 };
 
 /// forest. Proposed in research/ratatui/ANATOMY_PROPOSAL.md, which cites the
@@ -295,6 +430,14 @@ pub const FOREST: Anatomy = Anatomy {
     selected_tab_modifier: Modifier::UNDERLINED,
     cursor: SetCursorStyle::SteadyBar,
     reveal: Reveal::Arrive { ms: 500 },
+    // forest-register.css:25 "Nothing here flickers"; the contour field is
+    // an SVG at 6 % with no cell equivalent.
+    fx: Fx {
+        texture: Texture::None,
+        sweep: None,
+        alarm: BASELINE_ALARM,
+        spinner: Spinner::Braille,
+    },
 };
 
 /// high-contrast. Proposed in research/ratatui/ANATOMY_PROPOSAL.md, which cites the
@@ -314,6 +457,14 @@ pub const HIGH_CONTRAST: Anatomy = Anatomy {
     selected_tab_modifier: Modifier::UNDERLINED,
     cursor: SetCursorStyle::SteadyBlock,
     reveal: Reveal::Arrive { ms: 550 },
+    // high-contrast-register.css:14 "nothing loops, nothing blinks", and it
+    // declares no texture at all.
+    fx: Fx {
+        texture: Texture::None,
+        sweep: None,
+        alarm: STILL_ALARM,
+        spinner: Spinner::Half,
+    },
 };
 
 /// sepia. Proposed in research/ratatui/ANATOMY_PROPOSAL.md, which cites the
@@ -333,6 +484,14 @@ pub const SEPIA: Anatomy = Anatomy {
     selected_tab_modifier: Modifier::UNDERLINED,
     cursor: SetCursorStyle::SteadyBar,
     reveal: Reveal::Arrive { ms: 1050 },
+    // sepia-register.css:70 "Nothing loops, nothing oscillates"; it
+    // declares no --fx-texture.
+    fx: Fx {
+        texture: Texture::None,
+        sweep: None,
+        alarm: BASELINE_ALARM,
+        spinner: Spinner::Braille,
+    },
 };
 
 /// blueprint. Proposed in research/ratatui/ANATOMY_PROPOSAL.md, which cites the
@@ -352,6 +511,14 @@ pub const BLUEPRINT: Anatomy = Anatomy {
     selected_tab_modifier: Modifier::UNDERLINED,
     cursor: SetCursorStyle::SteadyBar,
     reveal: Reveal::Arrive { ms: 300 },
+    // blueprint-register.css: a drafting grid at 32px with crosshairs every
+    // 160px, 5.5 %.
+    fx: Fx {
+        texture: Texture::Grid { cols: 16, rows: 8 },
+        sweep: None,
+        alarm: BASELINE_ALARM,
+        spinner: Spinner::Quadrant,
+    },
 };
 
 /// solstice. Proposed in research/ratatui/ANATOMY_PROPOSAL.md, which cites the
@@ -371,6 +538,14 @@ pub const SOLSTICE: Anatomy = Anatomy {
     selected_tab_modifier: Modifier::UNDERLINED,
     cursor: SetCursorStyle::SteadyBar,
     reveal: Reveal::Arrive { ms: 740 },
+    // solstice-register.css:14 "Nothing here is a bevel, a scanline or a
+    // grid"; :1012 "Once, never in a loop".
+    fx: Fx {
+        texture: Texture::None,
+        sweep: None,
+        alarm: BASELINE_ALARM,
+        spinner: Spinner::Braille,
+    },
 };
 
 /// brutalism. Proposed in research/ratatui/ANATOMY_PROPOSAL.md, which cites the
@@ -393,6 +568,14 @@ pub const BRUTALISM: Anatomy = Anatomy {
         ms: 260,
         stagger_ms: 60,
     },
+    // brutalism-register.css: a dot grid, 1.6px dots every 20px; the alarm
+    // glow is at alpha 0.
+    fx: Fx {
+        texture: Texture::Dots { every: 10 },
+        sweep: None,
+        alarm: STILL_ALARM,
+        spinner: Spinner::Half,
+    },
 };
 
 /// deco. Proposed in research/ratatui/ANATOMY_PROPOSAL.md, which cites the
@@ -412,6 +595,13 @@ pub const DECO: Anatomy = Anatomy {
     selected_tab_modifier: Modifier::UNDERLINED,
     cursor: SetCursorStyle::SteadyBar,
     reveal: Reveal::Arrive { ms: 520 },
+    // deco-register.css: a chevron pair every 24px at 5 %.
+    fx: Fx {
+        texture: Texture::Diagonal { every: 12 },
+        sweep: None,
+        alarm: BASELINE_ALARM,
+        spinner: Spinner::Quadrant,
+    },
 };
 
 /// phantom. Proposed in research/ratatui/ANATOMY_PROPOSAL.md, which cites the
@@ -433,6 +623,14 @@ pub const PHANTOM: Anatomy = Anatomy {
     reveal: Reveal::Words {
         ms: 620,
         stagger_ms: 28,
+    },
+    // phantom-register.css:22 "Nothing here flickers: the halftone and the
+    // scan are static" — 7px halftone over a 1px/3px scan at 14 %.
+    fx: Fx {
+        texture: Texture::Scanline { every: 3 },
+        sweep: None,
+        alarm: BASELINE_ALARM,
+        spinner: Spinner::Quadrant,
     },
 };
 
@@ -456,6 +654,14 @@ pub const SHADE_LIGHT: Anatomy = Anatomy {
         ms: 520,
         stagger_ms: 70,
     },
+    // shade-light-register.css:29 "nothing loops, nothing blinks"; only the
+    // divider seam is textured.
+    fx: Fx {
+        texture: Texture::None,
+        sweep: None,
+        alarm: BASELINE_ALARM,
+        spinner: Spinner::Braille,
+    },
 };
 
 /// shade-dark. Proposed in research/ratatui/ANATOMY_PROPOSAL.md, which cites the
@@ -478,6 +684,14 @@ pub const SHADE_DARK: Anatomy = Anatomy {
         ms: 600,
         stagger_ms: 90,
     },
+    // shade-dark-register.css:19 "Nothing loops" — "no starfield, no
+    // grain".
+    fx: Fx {
+        texture: Texture::None,
+        sweep: None,
+        alarm: BASELINE_ALARM,
+        spinner: Spinner::Quadrant,
+    },
 };
 
 /// retro. Proposed in research/ratatui/ANATOMY_PROPOSAL.md, which cites the
@@ -497,6 +711,14 @@ pub const RETRO: Anatomy = Anatomy {
     selected_tab_modifier: Modifier::BOLD,
     cursor: SetCursorStyle::SteadyBlock,
     reveal: Reveal::Arrive { ms: 640 },
+    // retro-register.css:33 "nothing loops and nothing blinks"; the ground
+    // is a 4px conic checkerboard at 4 %.
+    fx: Fx {
+        texture: Texture::Dots { every: 2 },
+        sweep: None,
+        alarm: STILL_ALARM,
+        spinner: Spinner::Bar,
+    },
 };
 
 /// grotesk. Proposed in research/ratatui/ANATOMY_PROPOSAL.md, which cites the
@@ -516,6 +738,14 @@ pub const GROTESK: Anatomy = Anatomy {
     selected_tab_modifier: Modifier::UNDERLINED,
     cursor: SetCursorStyle::SteadyBar,
     reveal: Reveal::Arrive { ms: 640 },
+    // grotesk-register.css:25 "Nothing here flickers or loops"; the texture
+    // is twelve column rules at 5 %, vertical only.
+    fx: Fx {
+        texture: Texture::Grid { cols: 8, rows: 0 },
+        sweep: None,
+        alarm: STILL_ALARM,
+        spinner: Spinner::Quadrant,
+    },
 };
 
 /// lapis. Proposed in research/ratatui/ANATOMY_PROPOSAL.md, which cites the
@@ -535,6 +765,14 @@ pub const LAPIS: Anatomy = Anatomy {
     selected_tab_modifier: Modifier::empty(),
     cursor: SetCursorStyle::SteadyBar,
     reveal: Reveal::Arrive { ms: 900 },
+    // lapis-register.css:35 "Nothing here flickers or loops"; the page
+    // texture layer is at opacity 0.
+    fx: Fx {
+        texture: Texture::None,
+        sweep: None,
+        alarm: BASELINE_ALARM,
+        spinner: Spinner::Braille,
+    },
 };
 
 /// nostromo. Proposed in research/ratatui/ANATOMY_PROPOSAL.md, which cites the
@@ -554,6 +792,14 @@ pub const NOSTROMO: Anatomy = Anatomy {
     selected_tab_modifier: Modifier::UNDERLINED,
     cursor: SetCursorStyle::SteadyBlock,
     reveal: Reveal::Arrive { ms: 340 },
+    // nostromo-register.css:29 "The only loops on this page: none"; the
+    // ground is 1px vent ribs every 6px at 5 %.
+    fx: Fx {
+        texture: Texture::Scanline { every: 6 },
+        sweep: None,
+        alarm: BASELINE_ALARM,
+        spinner: Spinner::Ascii,
+    },
 };
 
 /// titanium. Proposed in research/ratatui/ANATOMY_PROPOSAL.md, which cites the
@@ -575,6 +821,14 @@ pub const TITANIUM: Anatomy = Anatomy {
     reveal: Reveal::Words {
         ms: 640,
         stagger_ms: 28,
+    },
+    // titanium-register.css: a carbon twill at +/-45 degrees, 2px lines
+    // every 9px.
+    fx: Fx {
+        texture: Texture::Diagonal { every: 5 },
+        sweep: None,
+        alarm: BASELINE_ALARM,
+        spinner: Spinner::Quadrant,
     },
 };
 

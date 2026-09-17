@@ -21,11 +21,12 @@ use ratatui::{
 };
 
 use crate::color::{ColorDepth, Role};
+use crate::effects::mix;
 use crate::fx::Motion;
 use crate::live::Sample;
 use crate::logs::{LogBuffer, Severity};
 use crate::theme::Theme;
-use crate::widgets::{Panel, ThemedTabs, mix};
+use crate::widgets::{Panel, ThemedTabs};
 
 /// How much history the charts show.
 pub const WINDOW_S: f64 = 60.0;
