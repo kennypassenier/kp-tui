@@ -10,3 +10,5 @@ repository.workspace = true
 kp-tui-palette = { path = "../kp-tui-palette", version = "0.1.0" }
 ratatui = "0.30"
 crossterm = "0.29"
+# The journal feed reads `journalctl --output=json`; nothing else needs it.
+serde_json = "1"

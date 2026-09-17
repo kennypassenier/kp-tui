@@ -32,7 +32,30 @@ round would ask, with measurements.
 from: a live dashboard reading `/proc` and `journalctl`, plus a component
 screen, in all 22 themes.
 
+## What is in it
+
+`kp-tui-palette`: the 22 palettes, `Palette<C>` with 36 colours, the `Role`
+each colour plays, and `THEMES` in the package's order.
+
+`kp-tui`: the `Anatomy` of every theme (border set, focus set, button face,
+case, panel-title prefix, tab divider, cursor, reveal), `ColorDepth` and its
+fallback to 256 and 16 colours, `Theme` (a palette resolved for the terminal
+plus its anatomy), and the widgets:
+
+- **Panel** — a titled frame in the theme's border glyphs, with its prefix.
+- **ThemedTabs** — the tab strip and the theme's own divider.
+- **Button** — a filled plate, the plate's end from the theme's radius, the
+  focus ring along its last row, the charge sweep where a register has one.
+- **RevealText** — a headline in the theme's own routine: whole, deciphered,
+  typed, or word by word with its measured stagger.
+- **dashboard** — charts over a window, a bar chart, sparklines, the log
+  pane with a colour per severity, the threshold pulse.
+- **logs** — `journalctl --output=json` parsed into coloured parts, a buffer
+  with pause, filter and scroll.
+- **live** — CPU, memory, load, network and disk read from `/proc`.
+
 ## Status
 
-Just started. The palette crate and the theme lookup are here and tested;
-the widgets are next, ported from the demo.
+Started 2026-09-17. The crates build, 13 tests pass, clippy is clean. The
+demo that produced this is still `research/ratatui/demo` in kp-themes; it
+keeps its own application tests.

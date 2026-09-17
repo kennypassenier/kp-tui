@@ -9,18 +9,51 @@
 //! produced the nineteen rows Kenny did not review one by one.
 
 pub mod anatomy;
+pub mod color;
+pub mod dashboard;
+pub mod fx;
+pub mod live;
+pub mod logs;
+pub mod theme;
+pub mod widgets;
 
 pub use anatomy::{Anatomy, ButtonFace, Reveal};
+pub use color::ColorDepth;
 pub use kp_tui_palette::{KP_THEMES_VERSION, Palette, Rgb, Role, THEMES};
+pub use theme::Theme;
 
 /// One of the package's themes, by its place in `themes/order.json`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ThemeId(pub usize);
 
 impl ThemeId {
+    /// The three the demo carried first, and the ones a caller is most
+    /// likely to name. Every other theme is `ThemeId::from_name`, or a
+    /// walk through `ALL`.
+    pub const FORMAL: ThemeId = ThemeId(0);
+    pub const CYBERPUNK: ThemeId = ThemeId(3);
+    pub const TERMINAL: ThemeId = ThemeId(6);
+    #[allow(non_upper_case_globals)]
+    pub const Formal: ThemeId = Self::FORMAL;
+    #[allow(non_upper_case_globals)]
+    pub const Cyberpunk: ThemeId = Self::CYBERPUNK;
+    #[allow(non_upper_case_globals)]
+    pub const Terminal: ThemeId = Self::TERMINAL;
+
+    /// Every theme, in the package's own order.
+    pub const ALL: [ThemeId; 22] = {
+        let mut all = [ThemeId(0); 22];
+        let mut i = 0;
+        while i < 22 {
+            all[i] = ThemeId(i);
+            i += 1;
+        }
+        all
+    };
+
     /// Every theme, in the package's own order.
     pub fn all() -> impl Iterator<Item = ThemeId> {
-        (0..THEMES.len()).map(ThemeId)
+        Self::ALL.into_iter()
     }
 
     pub fn name(self) -> &'static str {
