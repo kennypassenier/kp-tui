@@ -1,0 +1,9 @@
+[package]
+name = "kp-tui-palette"
+description = "The kp-themes palettes, generated from the package's own tokens"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]

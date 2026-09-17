@@ -1,0 +1,12 @@
+[package]
+name = "kp-tui"
+description = "kp-themes for ratatui: the palettes, the anatomy a terminal can carry, and widgets that take a theme"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+kp-tui-palette = { path = "../kp-tui-palette", version = "0.1.0" }
+ratatui = "0.30"
+crossterm = "0.29"

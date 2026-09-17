@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Repo-scoped quality gate (standing rule 7): fires for EVERY commit in
+# this repository — any session, any terminal, any tool.
+# Enable in a fresh clone with:  git config core.hooksPath .githooks
+set -euo pipefail
+exec "$(git rev-parse --show-toplevel)/.claude/hooks/gates.sh"

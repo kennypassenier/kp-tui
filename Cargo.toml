@@ -1,0 +1,16 @@
+# kp-tui: the kp-themes house themes in a terminal.
+#
+# Two crates, because the split is the one thing the research was sure of
+# (research/ratatui/README.md in kp-themes): the palette is generated from
+# the package's tokens and contains no judgement, the anatomy and the
+# widgets are hand-written and contain nothing but judgement. A consumer
+# that only wants the colours takes the first and stops.
+[workspace]
+members = ["crates/kp-tui-palette", "crates/kp-tui"]
+resolver = "3"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+repository = "https://github.com/kennypassenier/kp-tui"
