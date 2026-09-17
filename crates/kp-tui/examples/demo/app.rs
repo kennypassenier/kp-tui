@@ -14,11 +14,11 @@ use ratatui::{
 
 use crate::config::Config;
 use kp_tui::KP_THEMES_VERSION as PACKAGE_VERSION;
-use kp_tui::Theme;
 use kp_tui::color::ColorDepth;
 use kp_tui::dashboard::{self, Dashboard};
 use kp_tui::fx::{self, Motion};
 use kp_tui::widgets::{Button, ButtonKind, ButtonState, Panel, RevealText, ThemedTabs};
+use kp_tui::{Field, KeyHints, Meter, Popup, PopupKind, Theme};
 
 pub const TABS: [&str; 3] = ["Overview", "Deployments", "Settings"];
 
@@ -68,6 +68,10 @@ pub enum Screen {
     /// The first round's panels, tabs and buttons. `App::new` starts here,
     /// so the first round's tests read the same frame they always did.
     Components,
+    /// What homelab hand-rolls today: a popup over a screen, fields with
+    /// the theme's caret, meters with their thresholds, and one keymap
+    /// drawn as a footer and as an overlay [docs/HOMELAB_INVENTORY.md].
+    Console,
 }
 
 pub struct App {
@@ -188,7 +192,8 @@ impl App {
             KeyCode::Char('s') => {
                 self.screen = match self.screen {
                     Screen::Dashboard => Screen::Components,
-                    Screen::Components => Screen::Dashboard,
+                    Screen::Components => Screen::Console,
+                    Screen::Console => Screen::Dashboard,
                 };
                 self.reveal_ms = 0;
             }
@@ -249,6 +254,10 @@ impl App {
                 header,
             };
             dashboard::draw(frame, &self.dash, &view);
+            return;
+        }
+        if self.screen == Screen::Console {
+            self.draw_console(frame);
             return;
         }
         let th = &self.theme;
@@ -377,3 +386,118 @@ impl App {
         let _ = fx::GLYPHS; // the effect module is part of the public surface
     }
 }
+
+/// The console screen: the four components homelab writes out by hand, in
+/// whichever theme is on. The numbers are fixed so the screen can be
+/// compared between themes rather than between moments.
+impl App {
+    fn draw_console(&self, frame: &mut Frame) {
+        let th = &self.theme;
+        let screen = frame.area();
+        frame.render_widget(Block::new().style(th.base()), screen);
+        let rows = Layout::vertical([
+            Constraint::Length(1),
+            Constraint::Length(5),
+            Constraint::Length(4),
+            Constraint::Min(0),
+            Constraint::Length(1),
+        ])
+        .areas::<5>(screen);
+
+        frame.render_widget(
+            Paragraph::new(Line::from(vec![
+                Span::styled(
+                    th.label("console"),
+                    Style::new().fg(th.c.primary).add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(
+                    format!(
+                        "  {} · what homelab hand-rolls, from the crate",
+                        th.id.name()
+                    ),
+                    Style::new().fg(th.c.muted_foreground),
+                ),
+            ]))
+            .style(Style::new().bg(th.c.background)),
+            rows[0],
+        );
+
+        // Three meters, one under each threshold and one over.
+        let panel = Panel::new(th, "Capacity");
+        let inner = panel.block().inner(rows[1]);
+        frame.render_widget(panel, rows[1]);
+        let meters = Layout::vertical([Constraint::Length(1); 3]).areas::<3>(inner);
+        for (area, (label, value)) in
+            meters
+                .iter()
+                .zip([("ram", 0.42_f32), ("ssd", 0.78), ("load", 0.94)])
+        {
+            frame.render_widget(Meter::new(th, label, value), *area);
+        }
+
+        // Two fields; the second has the caret, blinking on the theme's own
+        // clock where the theme blinks.
+        let panel = Panel::new(th, "Filter").focused(true);
+        let inner = panel.block().inner(rows[2]);
+        frame.render_widget(panel, rows[2]);
+        let fields = Layout::vertical([Constraint::Length(1); 2]).areas::<2>(inner);
+        frame.render_widget(Field::new(th, "stack", "media"), fields[0]);
+        frame.render_widget(
+            Field::new(th, "filter", "web")
+                .focused(true)
+                .blink(self.reveal_ms / 33),
+            fields[1],
+        );
+
+        // The help overlay, from the same keymap the footer draws.
+        let hints = KeyHints::new(th, CONSOLE_KEYS);
+        let panel = Panel::new(th, "Keys");
+        let inner = panel.block().inner(rows[3]);
+        frame.render_widget(panel, rows[3]);
+        frame.render_widget(
+            Paragraph::new(hints.overlay()).style(Style::new().bg(th.c.card)),
+            inner,
+        );
+
+        frame.render_widget(KeyHints::new(th, CONSOLE_KEYS), rows[4]);
+
+        // And a dialog over all of it, as a restore would be.
+        let popup = Popup::new(th, "Restore backup", (52, 7)).kind(PopupKind::Danger);
+        let inner = popup.render_over(screen, frame.buffer_mut());
+        let lines = vec![
+            Line::from(Span::styled(
+                "This replaces the running stack with 2026-09-16.",
+                Style::new().fg(th.c.popover_foreground),
+            )),
+            Line::from(""),
+            Line::from(Span::styled(
+                "Type the stack's name to confirm:",
+                Style::new().fg(th.c.muted_foreground),
+            )),
+        ];
+        frame.render_widget(
+            Paragraph::new(lines).style(Style::new().bg(th.c.popover)),
+            inner,
+        );
+        let field = Rect {
+            y: inner.bottom() - 1,
+            height: 1,
+            ..inner
+        };
+        frame.render_widget(
+            Field::new(th, "name", "medi")
+                .focused(true)
+                .blink(self.reveal_ms / 33),
+            field,
+        );
+    }
+}
+
+/// One keymap: the footer and the overlay both read this.
+const CONSOLE_KEYS: &[(&str, &str)] = &[
+    ("s", "screen"),
+    ("t", "theme"),
+    ("m", "motion"),
+    ("Esc", "close"),
+    ("q", "quit"),
+];

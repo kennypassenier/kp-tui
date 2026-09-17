@@ -5,7 +5,7 @@
 //! this crate's.
 
 use kp_tui::{
-    ColorDepth, Theme, ThemeId,
+    ColorDepth, Field, KeyHints, Meter, Popup, PopupKind, Theme, ThemeId,
     anatomy::Reveal,
     color::Rgb,
     dashboard::rate,
@@ -402,4 +402,166 @@ fn proc_parsers_on_fixtures() {
         live::parse_proc_ticks("42 (kp tui) demo) S 1 2 3 4 5 6 7 8 9 10 250 30 0 0"),
         280
     );
+}
+
+// ── The four homelab hand-rolls, now in the crate ───────────────────────
+
+#[test]
+fn a_popup_clears_its_ground_and_frames_it_in_the_theme() {
+    for name in ["cyberpunk", "terminal", "formal"] {
+        let id = ThemeId::from_name(name).unwrap();
+        let th = Theme::new(id, ColorDepth::TrueColor);
+        let p = id.palette();
+        let screen = Rect::new(0, 0, 60, 20);
+        let mut buf = Buffer::empty(screen);
+        // Something noisy underneath, to prove the popup clears it.
+        for y in 0..20 {
+            for x in 0..60 {
+                buf[(x, y)].set_symbol("#");
+            }
+        }
+        let popup = Popup::new(&th, "Confirm", (30, 8));
+        let area = popup.area(screen);
+        let inner = popup.render_over(screen, &mut buf);
+        assert_eq!(
+            (area.width, area.height),
+            (30, 8),
+            "{name}: the size it asked for"
+        );
+        assert_eq!(area.x, 15, "{name}: centred");
+        assert!(
+            inner.width < area.width && inner.y > area.y,
+            "{name}: the frame takes a cell"
+        );
+        // The ground inside is the popover surface, and the noise is gone.
+        assert_eq!(
+            buf[(inner.x, inner.y)].bg,
+            rgb(p.popover),
+            "{name}: the popover ground"
+        );
+        assert_eq!(buf[(inner.x, inner.y)].symbol(), " ", "{name}: cleared");
+        // Outside it, the noise stands.
+        assert_eq!(
+            buf[(0, 0)].symbol(),
+            "#",
+            "{name}: only the popup is cleared"
+        );
+    }
+}
+
+#[test]
+fn a_danger_popup_takes_the_destructive_colour_on_its_frame() {
+    let th = Theme::new(ThemeId::Cyberpunk, ColorDepth::TrueColor);
+    let p = ThemeId::Cyberpunk.palette();
+    let screen = Rect::new(0, 0, 40, 12);
+    let mut buf = Buffer::empty(screen);
+    let popup = Popup::new(&th, "Restore", (24, 6)).kind(PopupKind::Danger);
+    let area = popup.area(screen);
+    popup.render_over(screen, &mut buf);
+    assert_eq!(
+        buf[(area.x, area.y)].fg,
+        rgb(p.destructive),
+        "the frame says what this dialog does"
+    );
+    let mut plain = Buffer::empty(screen);
+    let normal = Popup::new(&th, "Restore", (24, 6));
+    normal.render_over(screen, &mut plain);
+    assert_ne!(
+        plain[(area.x, area.y)].fg,
+        rgb(p.destructive),
+        "a normal popup does not"
+    );
+}
+
+#[test]
+fn a_field_carries_the_theme_s_own_caret() {
+    // terminal blinks a block, dark holds a bar steady: the anatomy says so,
+    // and the field reads it instead of drawing its own.
+    let terminal = Theme::new(ThemeId::Terminal, ColorDepth::TrueColor);
+    let row = |th: &Theme, ticks: u32| {
+        let mut buf = Buffer::empty(Rect::new(0, 0, 30, 1));
+        Field::new(th, "filter", "web")
+            .focused(true)
+            .blink(ticks)
+            .render(buf.area, &mut buf);
+        (0..30)
+            .map(|x| buf[(x, 0)].symbol().to_string())
+            .collect::<String>()
+    };
+    let on = row(&terminal, 0);
+    let off = row(&terminal, 15);
+    assert!(on.contains("█"), "terminal blinks a block: {on}");
+    assert!(
+        !off.contains("█"),
+        "and the block goes away between blinks: {off}"
+    );
+    let dark = Theme::new(ThemeId::from_name("dark").unwrap(), ColorDepth::TrueColor);
+    assert!(
+        row(&dark, 0).contains("▏") && row(&dark, 15).contains("▏"),
+        "dark's bar is steady"
+    );
+    // An unfocused field carries no caret at all.
+    let mut buf = Buffer::empty(Rect::new(0, 0, 30, 1));
+    Field::new(&terminal, "filter", "web").render(buf.area, &mut buf);
+    let quiet: String = (0..30).map(|x| buf[(x, 0)].symbol().to_string()).collect();
+    assert!(!quiet.contains("█"), "{quiet}");
+    assert!(
+        quiet.contains("FILTER"),
+        "terminal uppercases its labels: {quiet}"
+    );
+}
+
+#[test]
+fn a_meter_crosses_into_warning_and_then_into_danger() {
+    let th = Theme::new(ThemeId::Formal, ColorDepth::TrueColor);
+    let p = ThemeId::Formal.palette();
+    assert_eq!(Meter::new(&th, "ram", 0.5).colour(), rgb(p.primary));
+    assert_eq!(Meter::new(&th, "ram", 0.75).colour(), rgb(p.warning));
+    assert_eq!(Meter::new(&th, "ram", 0.95).colour(), rgb(p.destructive));
+    // The thresholds are the caller's: a disk that matters earlier.
+    assert_eq!(
+        Meter::new(&th, "ssd", 0.55).thresholds(0.5, 0.8).colour(),
+        rgb(p.warning)
+    );
+    // The bar is painted, not spelled: no block glyphs in the row.
+    let mut buf = Buffer::empty(Rect::new(0, 0, 30, 1));
+    Meter::new(&th, "ram", 0.5).render(buf.area, &mut buf);
+    let row: String = (0..30).map(|x| buf[(x, 0)].symbol().to_string()).collect();
+    assert!(!row.contains("█") && !row.contains("░"), "{row}");
+    assert!(row.contains("50%"), "{row}");
+    let filled = (0..30)
+        .filter(|x| buf[(*x, 0)].bg == rgb(p.primary))
+        .count();
+    assert!(filled > 5, "half the bar is the primary: {filled}");
+}
+
+#[test]
+fn one_keymap_becomes_a_footer_and_an_overlay() {
+    let th = Theme::new(ThemeId::Cyberpunk, ColorDepth::TrueColor);
+    let keys = [("q", "quit"), ("r", "refresh"), ("F2", "effects")];
+    let hints = KeyHints::new(&th, &keys);
+    let footer: String = hints
+        .footer()
+        .spans
+        .iter()
+        .map(|s| s.content.to_string())
+        .collect();
+    assert!(
+        footer.contains("q quit") && footer.contains("F2 effects"),
+        "{footer}"
+    );
+    assert!(
+        footer.contains(th.a.tab_divider),
+        "the theme's own divider: {footer}"
+    );
+    let overlay = hints.overlay();
+    assert_eq!(overlay.len(), 3, "one row per key");
+    let first: String = overlay[0]
+        .spans
+        .iter()
+        .map(|s| s.content.to_string())
+        .collect();
+    // cyberpunk uppercases its labels, and the keys line up in a column.
+    assert!(first.contains("QUIT"), "{first}");
+    assert!(first.starts_with(" q") || first.starts_with("q"), "{first}");
 }
