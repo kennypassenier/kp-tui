@@ -5,7 +5,9 @@
 use std::io::Write;
 
 use kp_tui::{
-    ColorDepth, Field, KeyHints, Meter, Popup, PopupKind, Theme, ThemeId, widgets::Panel,
+    ColorDepth, Field, KeyHints, LogPane, Meter, Popup, PopupKind, Theme, ThemeId,
+    logs::{LogBuffer, LogLine, Severity},
+    widgets::Panel,
 };
 use ratatui::{
     Terminal,
@@ -42,7 +44,7 @@ fn main() {
     for name in names {
         let id = ThemeId::from_name(&name).unwrap_or_else(|| panic!("no theme {name}"));
         let th = Theme::new(id, ColorDepth::TrueColor);
-        let mut terminal = Terminal::new(TestBackend::new(96, 26)).expect("backend");
+        let mut terminal = Terminal::new(TestBackend::new(118, 30)).expect("backend");
         terminal
             .draw(|f| {
                 let screen = f.area();
@@ -86,9 +88,41 @@ fn main() {
                 let fields = Layout::vertical([Constraint::Length(1); 2]).areas::<2>(inner);
                 f.render_widget(Field::new(&th, "stack", "media"), fields[0]);
                 f.render_widget(Field::new(&th, "filter", "web").focused(true), fields[1]);
+                // The log viewer beside the keymap: sources in their own
+                // colours, severities, and the scrollbar homelab has not.
+                let halves =
+                    Layout::horizontal([Constraint::Percentage(64), Constraint::Percentage(36)])
+                        .areas::<2>(rows[3]);
+                let mut logs = LogBuffer::new(200);
+                for (i, (unit, severity, message)) in [
+                    ("media", Severity::Info, "jellyfin: started, 872 movies"),
+                    ("web", Severity::Notice, "caddy: certificate renewed"),
+                    ("db", Severity::Warning, "postgres: checkpoint took 4.2s"),
+                    ("media", Severity::Info, "sonarr: import complete"),
+                    ("web", Severity::Error, "caddy: upstream 502 for /api"),
+                    ("proxy", Severity::Debug, "route table reloaded"),
+                    ("db", Severity::Critical, "postgres: disk 96% full"),
+                    ("media", Severity::Info, "radarr: queue empty"),
+                ]
+                .into_iter()
+                .enumerate()
+                {
+                    logs.push(LogLine::new(
+                        &format!("12:0{i}:07"),
+                        "lxc-106",
+                        unit,
+                        severity,
+                        message,
+                    ));
+                }
+                let sources = ["media", "web", "db", "proxy"];
+                f.render_widget(
+                    LogPane::new(&th, "Journal", &logs).sources(&sources, 0),
+                    halves[0],
+                );
                 let panel = Panel::new(&th, "Keys");
-                let inner = panel.block().inner(rows[3]);
-                f.render_widget(panel, rows[3]);
+                let inner = panel.block().inner(halves[1]);
+                f.render_widget(panel, halves[1]);
                 f.render_widget(
                     Paragraph::new(KeyHints::new(&th, KEYS).overlay())
                         .style(Style::new().bg(th.c.card)),

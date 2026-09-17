@@ -15,6 +15,7 @@ use ratatui::{
     widgets::{Clear, Paragraph, Widget},
 };
 
+use crate::logs::{LogBuffer, Severity};
 use crate::theme::Theme;
 use crate::widgets::Panel;
 
@@ -364,5 +365,225 @@ impl Widget for KeyHints<'_> {
             .alignment(Alignment::Left)
             .style(Style::new().bg(t.secondary).fg(t.secondary_foreground))
             .render(area, buf);
+    }
+}
+
+// ── The log viewer ──────────────────────────────────────────────────────
+
+/// A colour that belongs to a name, from the theme's own chart hues.
+///
+/// homelab gives every stack an identity hue so it is recognisable in the
+/// table, the list, the source bar and its log lines alike
+/// (`client/src/tui/theme.rs:88`). There it is a hand-written match on a
+/// hash; here the five chart colours are what a theme already declares for
+/// telling series apart, so the hue is the theme's rather than one more
+/// literal.
+pub fn source_colour(theme: &Theme, name: &str) -> ratatui::style::Color {
+    // FNV-1a: stable across runs and machines, which a `DefaultHasher` is
+    // not — a source that changed colour between sessions would be worse
+    // than no colour at all.
+    let mut hash: u32 = 0x811c_9dc5;
+    for byte in name.as_bytes() {
+        hash ^= *byte as u32;
+        hash = hash.wrapping_mul(0x0100_0193);
+    }
+    let c = &theme.c;
+    [c.chart_1, c.chart_2, c.chart_3, c.chart_4, c.chart_5][(hash % 5) as usize]
+}
+
+/// The log pane homelab draws three times, with what its three copies have
+/// between them — and the scrollbar none of them has.
+///
+/// Carries: the source selector with each source in its own colour, the
+/// severity filter and the follow state in the title, timestamp, host and
+/// unit as their own colours, a severity tag, and a scrollbar that says
+/// where in the buffer the view sits.
+pub struct LogPane<'a> {
+    theme: &'a Theme,
+    title: &'a str,
+    buffer: &'a LogBuffer,
+    sources: &'a [&'a str],
+    selected: usize,
+    /// A live feed says so in the title; a generated one must say that too,
+    /// because a demo stream that looks live is a lie a reader acts on.
+    live: bool,
+}
+
+impl<'a> LogPane<'a> {
+    pub fn new(theme: &'a Theme, title: &'a str, buffer: &'a LogBuffer) -> Self {
+        LogPane {
+            theme,
+            title,
+            buffer,
+            sources: &[],
+            selected: 0,
+            live: true,
+        }
+    }
+
+    /// The sources to offer, and which one is selected.
+    pub fn sources(mut self, sources: &'a [&'a str], selected: usize) -> Self {
+        (self.sources, self.selected) = (sources, selected);
+        self
+    }
+
+    pub fn live(mut self, live: bool) -> Self {
+        self.live = live;
+        self
+    }
+
+    /// The pane's state, for the panel's own status corner: which levels
+    /// are shown, and whether the view follows the tail.
+    pub fn status(&self) -> Line<'static> {
+        let c = &self.theme.c;
+        let muted = Style::new().fg(c.muted_foreground);
+        let l = self.buffer;
+        let filter = if l.filter == Severity::Debug {
+            "all levels".to_string()
+        } else {
+            format!("{} and up", l.filter.name())
+        };
+        let state = if l.paused() {
+            format!("paused, {} new", l.unseen())
+        } else {
+            "following".to_string()
+        };
+        let live = if self.live {
+            "live"
+        } else {
+            "synthetic, not real"
+        };
+        Line::from(vec![
+            Span::styled(format!(" {live} · {filter} · "), muted),
+            Span::styled(
+                state,
+                if l.paused() {
+                    Style::new()
+                        .fg(c.warning_foreground)
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    muted
+                },
+            ),
+            Span::styled(" ", muted),
+        ])
+    }
+
+    /// The source bar: every source in its own colour, the selected one on
+    /// its plate. One line; empty when there is nothing to choose between.
+    fn source_bar(&self) -> Line<'static> {
+        let (c, a) = (&self.theme.c, self.theme.a);
+        let mut spans = Vec::new();
+        for (i, name) in self.sources.iter().enumerate() {
+            if i > 0 {
+                spans.push(Span::styled(
+                    a.tab_divider.to_string(),
+                    Style::new().fg(c.border_strong),
+                ));
+            }
+            let hue = source_colour(self.theme, name);
+            let label = if a.uppercase_labels {
+                name.to_uppercase()
+            } else {
+                (*name).to_string()
+            };
+            let style = if i == self.selected {
+                Style::new()
+                    .fg(c.background)
+                    .bg(hue)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::new().fg(hue)
+            };
+            spans.push(Span::styled(format!(" {label} "), style));
+        }
+        Line::from(spans)
+    }
+}
+
+impl Widget for LogPane<'_> {
+    fn render(self, area: Rect, buf: &mut Buffer) {
+        use ratatui::widgets::{Scrollbar, ScrollbarOrientation, ScrollbarState, StatefulWidget};
+        let (c, a) = (&self.theme.c, self.theme.a);
+        let panel = Panel::new(self.theme, self.title).status(self.status());
+        let inner = panel.block().inner(area);
+        panel.render(area, buf);
+        if inner.height == 0 || inner.width < 4 {
+            return;
+        }
+        // The source bar takes the first row when there is more than one
+        // source; a single source names itself in the title instead.
+        let bar_rows = u16::from(self.sources.len() > 1);
+        if bar_rows == 1 {
+            let bar = Rect { height: 1, ..inner };
+            Paragraph::new(self.source_bar())
+                .style(Style::new().bg(c.card))
+                .render(bar, buf);
+        }
+        let body = Rect {
+            y: inner.y + bar_rows,
+            height: inner.height - bar_rows,
+            width: inner.width.saturating_sub(1),
+            ..inner
+        };
+        if body.height == 0 {
+            return;
+        }
+        let height = body.height as usize;
+        let lines: Vec<Line> = self
+            .buffer
+            .visible(height)
+            .into_iter()
+            .map(|line| {
+                let unit_hue = source_colour(self.theme, &line.unit);
+                Line::from(vec![
+                    Span::styled(
+                        format!("{} ", line.time),
+                        Style::new().fg(c.muted_foreground),
+                    ),
+                    Span::styled(format!("{} ", line.host), Style::new().fg(c.border_strong)),
+                    Span::styled(format!("{} ", line.unit), Style::new().fg(unit_hue)),
+                    Span::styled(
+                        line.severity.tag().to_string(),
+                        crate::dashboard::severity_style(self.theme, line.severity),
+                    ),
+                    Span::styled(" ", Style::new()),
+                    Span::styled(
+                        line.message.clone(),
+                        crate::dashboard::message_style(self.theme, line.severity),
+                    ),
+                ])
+            })
+            .collect();
+        Paragraph::new(lines)
+            .style(Style::new().bg(c.card))
+            .render(body, buf);
+
+        // The scrollbar homelab's three copies do without: where the view
+        // sits in what the filter shows, with the theme's own line colours.
+        let total = self.buffer.shown_count();
+        let track = Rect {
+            x: inner.right() - 1,
+            y: body.y,
+            width: 1,
+            height: body.height,
+        };
+        let mut state = ScrollbarState::new(total.saturating_sub(height)).position(
+            total
+                .saturating_sub(height)
+                .saturating_sub(self.buffer.scroll().min(total.saturating_sub(height))),
+        );
+        StatefulWidget::render(
+            Scrollbar::new(ScrollbarOrientation::VerticalRight)
+                .begin_symbol(None)
+                .end_symbol(None)
+                .track_symbol(Some(" "))
+                .thumb_symbol(if a.uppercase_labels { "█" } else { "▐" })
+                .track_style(Style::new().bg(c.card).fg(c.border))
+                .thumb_style(Style::new().bg(c.card).fg(c.border_strong)),
+            track,
+            buf,
+            &mut state,
+        );
     }
 }

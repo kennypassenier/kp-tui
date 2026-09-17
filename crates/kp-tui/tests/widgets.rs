@@ -5,13 +5,14 @@
 //! this crate's.
 
 use kp_tui::{
-    ColorDepth, Field, KeyHints, Meter, Popup, PopupKind, Theme, ThemeId,
+    ColorDepth, Field, KeyHints, LogPane, Meter, Popup, PopupKind, Theme, ThemeId,
     anatomy::Reveal,
     color::Rgb,
     dashboard::rate,
     fx::{self, Motion},
     live, logs,
-    logs::Severity,
+    logs::{LogBuffer, Severity},
+    source_colour,
     widgets::{Button, ButtonState},
 };
 use ratatui::{buffer::Buffer, layout::Rect, style::Color, widgets::Widget};
@@ -564,4 +565,137 @@ fn one_keymap_becomes_a_footer_and_an_overlay() {
     // cyberpunk uppercases its labels, and the keys line up in a column.
     assert!(first.contains("QUIT"), "{first}");
     assert!(first.starts_with(" q") || first.starts_with("q"), "{first}");
+}
+
+#[test]
+fn a_source_keeps_its_colour_and_two_sources_rarely_share_one() {
+    let th = Theme::new(ThemeId::Cyberpunk, ColorDepth::TrueColor);
+    let p = ThemeId::Cyberpunk.palette();
+    let charts = [p.chart_1, p.chart_2, p.chart_3, p.chart_4, p.chart_5].map(rgb);
+    // Stable across calls, and always one of the theme's own chart hues.
+    for name in ["media", "web", "db", "proxy", "backup"] {
+        let once = source_colour(&th, name);
+        assert_eq!(
+            once,
+            source_colour(&th, name),
+            "{name} changed colour between calls"
+        );
+        assert!(
+            charts.contains(&once),
+            "{name} took a colour the theme does not declare"
+        );
+    }
+    // The four homelab stacks land on four different hues.
+    let hues: std::collections::BTreeSet<String> = ["media", "web", "db", "proxy"]
+        .iter()
+        .map(|n| format!("{:?}", source_colour(&th, n)))
+        .collect();
+    assert!(
+        hues.len() >= 3,
+        "three of four stacks should be told apart by colour: {hues:?}"
+    );
+}
+
+#[test]
+fn the_log_pane_carries_the_source_bar_the_severities_and_a_scrollbar() {
+    let th = Theme::new(ThemeId::Cyberpunk, ColorDepth::TrueColor);
+    let p = ThemeId::Cyberpunk.palette();
+    let mut logs = LogBuffer::new(500);
+    for i in 0..80 {
+        let severity = if i % 7 == 0 {
+            Severity::Error
+        } else {
+            Severity::Info
+        };
+        logs.push(kp_tui::logs::LogLine::new(
+            "12:00:0{i}",
+            "lxc-106",
+            "media",
+            severity,
+            "unit started",
+        ));
+    }
+    let sources = ["media", "web", "db"];
+    let draw = |buffer: &LogBuffer| {
+        let mut buf = Buffer::empty(Rect::new(0, 0, 70, 12));
+        LogPane::new(&th, "Journal", buffer)
+            .sources(&sources, 0)
+            .render(buf.area, &mut buf);
+        buf
+    };
+    let buf = draw(&logs);
+    let rows: Vec<String> = (0..12)
+        .map(|y| {
+            (0..70)
+                .map(|x| buf[(x, y)].symbol().to_string())
+                .collect::<String>()
+        })
+        .collect();
+    // The source bar is on the first inner row, uppercase in cyberpunk.
+    assert!(
+        rows[1].contains("MEDIA") && rows[1].contains("WEB"),
+        "{:?}",
+        rows[1]
+    );
+    // The selected source sits on its own hue as a plate.
+    let selected_bg = buf[(2, 1)].bg;
+    assert!(
+        [
+            rgb(p.chart_1),
+            rgb(p.chart_2),
+            rgb(p.chart_3),
+            rgb(p.chart_4),
+            rgb(p.chart_5)
+        ]
+        .contains(&selected_bg),
+        "the selected source wears its identity hue: {selected_bg:?}"
+    );
+    // An error line carries the destructive colour on its tag.
+    let error_cells = (0..12)
+        .flat_map(|y| (0..70).map(move |x| (x, y)))
+        .filter(|c| buf[*c].fg == rgb(p.destructive))
+        .count();
+    assert!(error_cells > 0, "the error lines are coloured");
+    // The scrollbar occupies the last column and says the view is at the tail.
+    // The scrollbar is the last column INSIDE the frame; x=69 is the frame.
+    let track: String = (2..11).map(|y| buf[(68, y)].symbol().to_string()).collect();
+    assert!(
+        track.contains("█") || track.contains("▐"),
+        "a scrollbar: {track:?}"
+    );
+    // The status says what it shows and that it follows.
+    let status: String = LogPane::new(&th, "Journal", &logs)
+        .status()
+        .spans
+        .iter()
+        .map(|s| s.content.to_string())
+        .collect();
+    assert!(
+        status.contains("all levels") && status.contains("following"),
+        "{status}"
+    );
+    // Paused, it says how many arrived behind the pin.
+    let mut paused = LogBuffer::new(500);
+    paused.push(kp_tui::logs::LogLine::new(
+        "12:00:00",
+        "h",
+        "media",
+        Severity::Info,
+        "one",
+    ));
+    paused.toggle_pause();
+    paused.push(kp_tui::logs::LogLine::new(
+        "12:00:01",
+        "h",
+        "media",
+        Severity::Info,
+        "two",
+    ));
+    let status: String = LogPane::new(&th, "Journal", &paused)
+        .status()
+        .spans
+        .iter()
+        .map(|s| s.content.to_string())
+        .collect();
+    assert!(status.contains("paused, 1 new"), "{status}");
 }

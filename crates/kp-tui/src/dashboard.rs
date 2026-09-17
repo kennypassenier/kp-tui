@@ -218,7 +218,7 @@ pub fn severity_style(th: &Theme, s: Severity) -> Style {
     }
 }
 
-fn message_style(th: &Theme, s: Severity) -> Style {
+pub fn message_style(th: &Theme, s: Severity) -> Style {
     let c = &th.c;
     match s {
         Severity::Debug => Style::new().fg(c.muted_foreground),

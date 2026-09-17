@@ -282,6 +282,16 @@ impl LogBuffer {
         self.pin.map(|p| self.last_seq() - p).unwrap_or(0)
     }
 
+    /// How many lines the filter and the pin leave visible.
+    pub fn shown_count(&self) -> usize {
+        self.shown().count()
+    }
+
+    /// How far back the view is scrolled, in lines.
+    pub fn scroll(&self) -> usize {
+        self.scroll
+    }
+
     /// The `height` lines the pane shows, oldest first.
     pub fn visible(&self, height: usize) -> Vec<&LogLine> {
         let total = self.shown().count();
