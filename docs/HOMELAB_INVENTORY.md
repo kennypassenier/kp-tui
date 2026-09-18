@@ -108,4 +108,6 @@ offer the same effects as theme-aware widgets — the same screen in terminal
 reads as a phosphor CRT and in cyberpunk as a HUD, without a second palette.
 
 That part is now built and measured one effect at a time in
-[EFFECTS.md](EFFECTS.md).
+[EFFECTS.md](EFFECTS.md), and one of homelab's own screens has been rebuilt
+on the crate to see what the inventory missed —
+[HOMELAB_PROOF.md](HOMELAB_PROOF.md) has the three gaps it found.

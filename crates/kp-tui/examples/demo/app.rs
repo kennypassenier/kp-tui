@@ -79,6 +79,8 @@ pub enum Screen {
     /// a register declares one, the alarm, the spinner and the ticker —
     /// homelab's six hand-rolled effects, answered by the theme.
     Effects,
+    /// homelab's own stacks screen, rebuilt on this crate [docs/HOMELAB_PROOF.md].
+    Fleet,
 }
 
 pub struct App {
@@ -258,6 +260,13 @@ impl App {
                 self.palette_open = true;
                 self.palette_sel = 0;
             }
+            KeyCode::Down | KeyCode::Char('j') if self.screen == Screen::Fleet => {
+                self.stack_sel = (self.stack_sel + 1) % crate::fleet::FLEET.len();
+            }
+            KeyCode::Up | KeyCode::Char('k') if self.screen == Screen::Fleet => {
+                self.stack_sel =
+                    (self.stack_sel + crate::fleet::FLEET.len() - 1) % crate::fleet::FLEET.len();
+            }
             KeyCode::Char('n') if self.screen == Screen::Console => {
                 self.step = (self.step + 1) % WIZARD.len();
             }
@@ -266,7 +275,8 @@ impl App {
                     Screen::Dashboard => Screen::Components,
                     Screen::Components => Screen::Console,
                     Screen::Console => Screen::Effects,
-                    Screen::Effects => Screen::Dashboard,
+                    Screen::Effects => Screen::Fleet,
+                    Screen::Fleet => Screen::Dashboard,
                 };
                 self.reveal_ms = 0;
             }
@@ -335,6 +345,17 @@ impl App {
         }
         if self.screen == Screen::Effects {
             self.draw_effects(frame);
+            return;
+        }
+        if self.screen == Screen::Fleet {
+            frame.render_widget(Block::new().style(self.theme.base()), frame.area());
+            crate::fleet::draw(
+                frame,
+                &self.theme,
+                self.stack_sel,
+                self.reveal_ms,
+                self.config.motion,
+            );
             return;
         }
         let th = &self.theme;
