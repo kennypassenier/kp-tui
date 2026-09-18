@@ -43,6 +43,56 @@ pub enum ButtonFace {
     Bracket,
 }
 
+/// The line under a table's header, as a cell grid can draw it: the
+/// registers write 1px, 2px and 3px, and one writes a gradient.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Rule {
+    /// 1px — the package base.
+    Thin,
+    /// 2px.
+    Heavy,
+    /// 3px.
+    Double,
+    /// synthwave's `--kp-stripe`: one ramp from `--primary` to `--accent`
+    /// across the whole row, and the only gradient rule in the set.
+    Gradient,
+}
+
+/// How a register dresses a table's header.
+///
+/// Measured across the twenty-two on 2026-09-18. Six give the header a
+/// plate of its own and sixteen leave it transparent; the rule under it is
+/// 1px in seventeen, 2px in three, 3px in two, and a gradient in one.
+///
+/// What is deliberately NOT carried over: the 1px `--border` rule the base
+/// draws between body rows. On a page that is one pixel; in a cell grid it
+/// is a whole row, which halves how many records fit. The grid already
+/// separates the rows, so the header rule — the one every register
+/// re-states — is the one that is drawn.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TableHead {
+    pub plate: Tone,
+    pub ink: Tone,
+    pub uppercase: bool,
+    /// A register that sets `letter-spacing` on its header cells.
+    pub spaced: bool,
+    pub modifier: Modifier,
+    pub rule: Rule,
+    pub rule_tone: Tone,
+}
+
+/// The package base: no plate, muted ink, weight 600, a 1px
+/// `--border-strong` rule (`css/components.css:1373`).
+pub const BASE_HEAD: TableHead = TableHead {
+    plate: Tone::None,
+    ink: Tone::MutedInk,
+    uppercase: false,
+    spaced: false,
+    modifier: Modifier::BOLD,
+    rule: Rule::Thin,
+    rule_tone: Tone::Line,
+};
+
 /// A colour by the role it plays, so a row of the table below can name
 /// one without reaching into the palette itself.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -59,6 +109,10 @@ pub enum Tone {
     Secondary,
     SecondaryInk,
     Accent,
+    Success,
+    Warning,
+    Danger,
+    MutedInk,
 }
 
 /// How a register paints the row a person is standing on.
@@ -193,6 +247,8 @@ pub struct Anatomy {
     pub reveal: Reveal,
     /// The row a person is standing on.
     pub selection: Selection,
+    /// How this register dresses a table's header.
+    pub table: TableHead,
     /// What moves: the texture, the alarm, the spinner.
     pub fx: Fx,
 }
@@ -268,6 +324,9 @@ pub const FORMAL: Anatomy = Anatomy {
     // formal-register.css: the current sidenav link takes `background:
     // var(--muted)` with `color: var(--primary)`.
     selection: plated(Tone::Muted, Tone::Primary),
+    // formal-register.css restates the base: muted ink, weight 600, a 1px
+    // --border-strong rule.
+    table: BASE_HEAD,
 };
 
 /// cyberpunk. Signal yellow on a void; square or notched; a machine voice.
@@ -329,6 +388,17 @@ pub const CYBERPUNK: Anatomy = Anatomy {
     // cyberpunk-register.css:1736: `--primary` plate,
     // `--primary-foreground` ink, and a notched corner a cell cannot cut.
     selection: plated(Tone::Primary, Tone::PrimaryInk),
+    // cyberpunk-register.css: mono .72rem in --accent, uppercase,
+    // letter-spacing .14em, and the rule takes --primary instead of the
+    // border colour.
+    table: TableHead {
+        ink: Tone::Accent,
+        uppercase: true,
+        spaced: true,
+        modifier: Modifier::empty(),
+        rule_tone: Tone::Primary,
+        ..BASE_HEAD
+    },
 };
 
 /// terminal. A phosphor CRT that accepts a terminal's constraints.
@@ -379,6 +449,14 @@ pub const TERMINAL: Anatomy = Anatomy {
         marker_tone: Tone::PrimaryInk,
         ..plated(Tone::Primary, Tone::PrimaryInk)
     },
+    // terminal-register.css: uppercase, letter-spacing .12em, and weight
+    // 400 — the only register that takes the base weight back off.
+    table: TableHead {
+        uppercase: true,
+        spaced: true,
+        modifier: Modifier::empty(),
+        ..BASE_HEAD
+    },
 };
 
 /// light. Proposed in research/ratatui/ANATOMY_PROPOSAL.md, which cites the
@@ -411,6 +489,12 @@ pub const LIGHT: Anatomy = Anatomy {
         modifier: Modifier::BOLD,
         ..plated(Tone::None, Tone::Ink)
     },
+    // light-register.css: a --muted plate under the header, body ink on it.
+    table: TableHead {
+        plate: Tone::Muted,
+        ink: Tone::Ink,
+        ..BASE_HEAD
+    },
 };
 
 /// dark. Proposed in research/ratatui/ANATOMY_PROPOSAL.md, which cites the
@@ -442,6 +526,9 @@ pub const DARK: Anatomy = Anatomy {
     },
     // dark-register.css: an `--accent` plate under `--foreground`.
     selection: plated(Tone::Accent, Tone::Ink),
+    // dark-register.css keeps the base header and only adds a --card hover
+    // plate, which is the selected row here.
+    table: BASE_HEAD,
 };
 
 /// synthwave. Proposed in research/ratatui/ANATOMY_PROPOSAL.md, which cites the
@@ -477,6 +564,17 @@ pub const SYNTHWAVE: Anatomy = Anatomy {
         marker_tone: Tone::Primary,
         ..plated(Tone::None, Tone::Ink)
     },
+    // synthwave-register.css: the OSD face at 1rem, uppercase,
+    // letter-spacing .12em, and a 2px --kp-stripe gradient on the header
+    // row with the cell borders set transparent.
+    table: TableHead {
+        ink: Tone::Primary,
+        uppercase: true,
+        spaced: true,
+        modifier: Modifier::empty(),
+        rule: Rule::Gradient,
+        ..BASE_HEAD
+    },
 };
 
 /// pastel. Proposed in research/ratatui/ANATOMY_PROPOSAL.md, which cites the
@@ -506,6 +604,11 @@ pub const PASTEL: Anatomy = Anatomy {
     },
     // pastel-register.css: a `--primary` plate with its own ink.
     selection: plated(Tone::Primary, Tone::PrimaryInk),
+    // pastel-register.css restates the base with body ink.
+    table: TableHead {
+        ink: Tone::Ink,
+        ..BASE_HEAD
+    },
 };
 
 /// forest. Proposed in research/ratatui/ANATOMY_PROPOSAL.md, which cites the
@@ -538,6 +641,14 @@ pub const FOREST: Anatomy = Anatomy {
     selection: Selection {
         modifier: Modifier::BOLD,
         ..plated(Tone::None, Tone::Primary)
+    },
+    // forest-register.css: the display face at weight 700, and a 2px
+    // --foreground rule.
+    table: TableHead {
+        ink: Tone::Ink,
+        rule: Rule::Heavy,
+        rule_tone: Tone::Ink,
+        ..BASE_HEAD
     },
 };
 
@@ -574,6 +685,13 @@ pub const HIGH_CONTRAST: Anatomy = Anatomy {
         modifier: Modifier::BOLD,
         ..plated(Tone::None, Tone::Ink)
     },
+    // high-contrast-register.css: weight 700 and a 2px --border-strong
+    // rule, inside a 2px frame.
+    table: TableHead {
+        ink: Tone::Ink,
+        rule: Rule::Heavy,
+        ..BASE_HEAD
+    },
 };
 
 /// sepia. Proposed in research/ratatui/ANATOMY_PROPOSAL.md, which cites the
@@ -607,6 +725,13 @@ pub const SEPIA: Anatomy = Anatomy {
         marker: "▏",
         marker_tone: Tone::Primary,
         ..plated(Tone::Card, Tone::Primary)
+    },
+    // sepia-register.css: a --card plate on the header over a --popover
+    // table ground.
+    table: TableHead {
+        plate: Tone::Card,
+        ink: Tone::Ink,
+        ..BASE_HEAD
     },
 };
 
@@ -642,6 +767,13 @@ pub const BLUEPRINT: Anatomy = Anatomy {
         marker: "▌",
         marker_tone: Tone::Line,
         ..plated(Tone::None, Tone::Ink)
+    },
+    // blueprint-register.css: a --card plate, separate borders, and a
+    // framed datatable.
+    table: TableHead {
+        plate: Tone::Card,
+        ink: Tone::Ink,
+        ..BASE_HEAD
     },
 };
 
@@ -679,6 +811,8 @@ pub const SOLSTICE: Anatomy = Anatomy {
         marker_tone: Tone::Primary,
         ..plated(Tone::None, Tone::Ink)
     },
+    // solstice-register.css leaves the base alone, hover included.
+    table: BASE_HEAD,
 };
 
 /// brutalism. Proposed in research/ratatui/ANATOMY_PROPOSAL.md, which cites the
@@ -712,6 +846,16 @@ pub const BRUTALISM: Anatomy = Anatomy {
     // brutalism-register.css: a `--secondary` slab with its own ink — the
     // only register that selects in the secondary colour.
     selection: plated(Tone::Secondary, Tone::SecondaryInk),
+    // brutalism-register.css: a --secondary slab, weight 700, uppercase,
+    // letter-spacing .08em, and a 3px rule inside a 3px frame.
+    table: TableHead {
+        plate: Tone::Secondary,
+        ink: Tone::SecondaryInk,
+        uppercase: true,
+        spaced: true,
+        rule: Rule::Double,
+        ..BASE_HEAD
+    },
 };
 
 /// deco. Proposed in research/ratatui/ANATOMY_PROPOSAL.md, which cites the
@@ -744,6 +888,15 @@ pub const DECO: Anatomy = Anatomy {
         modifier: Modifier::BOLD,
         spaced: true,
         ..plated(Tone::None, Tone::Primary)
+    },
+    // deco-register.css: the display face in --primary, uppercase,
+    // letter-spacing .08em, weight 400.
+    table: TableHead {
+        ink: Tone::Primary,
+        uppercase: true,
+        spaced: true,
+        modifier: Modifier::empty(),
+        ..BASE_HEAD
     },
 };
 
@@ -778,6 +931,16 @@ pub const PHANTOM: Anatomy = Anatomy {
     // phantom-register.css: the `::before` bar grows to `inline-size:
     // 100%`, which is a `--primary` plate by another road.
     selection: plated(Tone::Primary, Tone::PrimaryInk),
+    // phantom-register.css: the display face at weight 700, uppercase,
+    // letter-spacing .1em, and a 3px --foreground rule.
+    table: TableHead {
+        ink: Tone::Ink,
+        uppercase: true,
+        spaced: true,
+        rule: Rule::Double,
+        rule_tone: Tone::Ink,
+        ..BASE_HEAD
+    },
 };
 
 /// shade-light. Proposed in research/ratatui/ANATOMY_PROPOSAL.md, which cites the
@@ -811,6 +974,12 @@ pub const SHADE_LIGHT: Anatomy = Anatomy {
     // shade-light-register.css: the row drops to `--background` with a
     // shadow, and the label takes `--primary`.
     selection: plated(Tone::Background, Tone::Primary),
+    // shade-light-register.css: a --card plate on a --card table ground.
+    table: TableHead {
+        plate: Tone::Card,
+        ink: Tone::Ink,
+        ..BASE_HEAD
+    },
 };
 
 /// shade-dark. Proposed in research/ratatui/ANATOMY_PROPOSAL.md, which cites the
@@ -844,6 +1013,9 @@ pub const SHADE_DARK: Anatomy = Anatomy {
     // shade-dark-register.css: the same drop to `--background`, inset
     // shadows, `--foreground` ink.
     selection: plated(Tone::Background, Tone::Ink),
+    // shade-dark-register.css keeps the base and adds a square inset focus
+    // ring on a cell.
+    table: BASE_HEAD,
 };
 
 /// retro. Proposed in research/ratatui/ANATOMY_PROPOSAL.md, which cites the
@@ -874,6 +1046,14 @@ pub const RETRO: Anatomy = Anatomy {
     // retro-register.css: a `--primary` plate with its own ink, the way a
     // selected item in that era always looked.
     selection: plated(Tone::Primary, Tone::PrimaryInk),
+    // retro-register.css: a --card plate with a bevel and a rule on all
+    // four sides of the header cells; a cell grid keeps the plate and the
+    // rule under it.
+    table: TableHead {
+        plate: Tone::Card,
+        ink: Tone::Ink,
+        ..BASE_HEAD
+    },
 };
 
 /// grotesk. Proposed in research/ratatui/ANATOMY_PROPOSAL.md, which cites the
@@ -908,6 +1088,14 @@ pub const GROTESK: Anatomy = Anatomy {
         modifier: Modifier::BOLD,
         ..plated(Tone::None, Tone::Ink)
     },
+    // grotesk-register.css: the display face at weight 800 and a 3px
+    // --foreground rule, the heaviest plain rule in the set.
+    table: TableHead {
+        ink: Tone::Ink,
+        rule: Rule::Double,
+        rule_tone: Tone::Ink,
+        ..BASE_HEAD
+    },
 };
 
 /// lapis. Proposed in research/ratatui/ANATOMY_PROPOSAL.md, which cites the
@@ -939,6 +1127,12 @@ pub const LAPIS: Anatomy = Anatomy {
     selection: Selection {
         modifier: Modifier::BOLD,
         ..plated(Tone::None, Tone::Primary)
+    },
+    // lapis-register.css: the mono face, uppercase, letter-spacing .06em.
+    table: TableHead {
+        uppercase: true,
+        spaced: true,
+        ..BASE_HEAD
     },
 };
 
@@ -975,6 +1169,13 @@ pub const NOSTROMO: Anatomy = Anatomy {
         marker_tone: Tone::Primary,
         ..plated(Tone::Muted, Tone::Ink)
     },
+    // nostromo-register.css: mono .72rem at weight 600, uppercase,
+    // letter-spacing .08em.
+    table: TableHead {
+        uppercase: true,
+        spaced: true,
+        ..BASE_HEAD
+    },
 };
 
 /// titanium. Proposed in research/ratatui/ANATOMY_PROPOSAL.md, which cites the
@@ -1007,6 +1208,9 @@ pub const TITANIUM: Anatomy = Anatomy {
     },
     // titanium-register.css: an `--accent` plate under `--foreground`.
     selection: plated(Tone::Accent, Tone::Ink),
+    // titanium-register.css keeps the base header; its --card hover plate
+    // is the selected row here.
+    table: BASE_HEAD,
 };
 
 /// Every theme's anatomy, in `themes/order.json`'s order, so `ThemeId`

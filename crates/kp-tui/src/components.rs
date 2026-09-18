@@ -15,7 +15,7 @@ use ratatui::{
     widgets::{Block, Borders, Clear, Paragraph, Widget},
 };
 
-use crate::anatomy::{Texture, Tone};
+use crate::anatomy::{ButtonFace, Rule, Texture, Tone};
 use crate::color::{ColorDepth, Rgb, Role};
 use crate::effects::{self, mix};
 use crate::fx::Motion;
@@ -1023,6 +1023,10 @@ impl Theme {
             Tone::Secondary => c.secondary,
             Tone::SecondaryInk => c.secondary_foreground,
             Tone::Accent => c.accent,
+            Tone::MutedInk => c.muted_foreground,
+            Tone::Success => c.success,
+            Tone::Warning => c.warning,
+            Tone::Danger => c.destructive,
         })
     }
 
@@ -1263,5 +1267,513 @@ impl<'a> CommandPalette<'a> {
             .offset(offset)
             .render(list, buf);
         area
+    }
+}
+
+// ── Badges: a state, in one word ────────────────────────────────────────
+
+/// A chip carrying a state — `running`, `UPD`, `sealed` — on a plate of
+/// its own, ending the way this register ends a plate.
+///
+/// homelab writes these by hand in three screens (`●`/`○`, `[UPD]`,
+/// `[OFF]`, `RUN ✓`, `DOWN ✗`); the web package has `.kp-badge`. This is
+/// the first of the three gaps `docs/HOMELAB_PROOF.md` measured.
+pub struct Badge<'a> {
+    theme: &'a Theme,
+    label: &'a str,
+    tone: Tone,
+    /// A bare badge is ink on the ground; a plated one carries the tone as
+    /// its plate, the way a filled button does.
+    plated: bool,
+}
+
+impl<'a> Badge<'a> {
+    pub fn new(theme: &'a Theme, label: &'a str, tone: Tone) -> Self {
+        Badge {
+            theme,
+            label,
+            tone,
+            plated: false,
+        }
+    }
+
+    pub fn plated(mut self, plated: bool) -> Self {
+        self.plated = plated;
+        self
+    }
+
+    /// The state dot every status list needs: filled when it is up, hollow
+    /// when it is not. A glyph rather than a plate, because a dot beside a
+    /// name is read as part of the name.
+    pub fn dot(theme: &Theme, up: bool) -> Span<'static> {
+        if up {
+            Span::styled("●", Style::new().fg(theme.c.success))
+        } else {
+            Span::styled("○", Style::new().fg(theme.c.muted_foreground))
+        }
+    }
+
+    /// The chip as spans, so it sits inside a line beside other text.
+    pub fn spans(&self) -> Vec<Span<'static>> {
+        let th = self.theme;
+        let colour = th.tone(self.tone).unwrap_or(th.c.muted_foreground);
+        let label = if th.a.uppercase_labels {
+            self.label.to_uppercase()
+        } else {
+            self.label.to_string()
+        };
+        if !self.plated {
+            let (open, close) = th.a.button_brackets;
+            return vec![Span::styled(
+                format!("{open}{label}{close}"),
+                Style::new().fg(colour),
+            )];
+        }
+        // A plated chip ends the way this register ends a button: half
+        // blocks for a rounded theme, square cells for a sharp one, the
+        // register's own brackets where it has them.
+        let ink = th.tone(on_tone(self.tone)).unwrap_or(th.c.background);
+        let plate = Style::new().bg(colour).fg(ink);
+        let ground = Style::new().fg(colour).bg(th.c.card);
+        match th.a.button_face {
+            ButtonFace::Soft => vec![
+                Span::styled("▐", ground),
+                Span::styled(label, plate),
+                Span::styled("▌", ground),
+            ],
+            ButtonFace::Bracket => {
+                let (open, close) = th.a.button_brackets;
+                vec![Span::styled(format!("{open}{label}{close}"), plate)]
+            }
+            ButtonFace::Square => vec![Span::styled(format!(" {label} "), plate)],
+        }
+    }
+}
+
+/// The ink that goes on a tone's plate.
+fn on_tone(tone: Tone) -> Tone {
+    match tone {
+        Tone::Primary => Tone::PrimaryInk,
+        Tone::Secondary => Tone::SecondaryInk,
+        // The package pairs every semantic colour with a foreground of its
+        // own; `Background` is the nearest role a palette lookup has for
+        // the ink that sits on one.
+        _ => Tone::Background,
+    }
+}
+
+// ── Facts: a label, a value, a state ────────────────────────────────────
+
+/// Rows of `label  value`, in columns, with each value free to carry its
+/// own state colour.
+///
+/// The second gap: homelab aligns these by hand on five screens
+/// (`vmid 112   env ● sealed`), and the web package has `.kp-definition`.
+pub struct Facts<'a> {
+    theme: &'a Theme,
+    /// Label, value, and the tone the value reads in.
+    rows: &'a [(&'a str, String, Tone)],
+    /// How many label/value pairs stand side by side on one line.
+    columns: usize,
+}
+
+impl<'a> Facts<'a> {
+    pub fn new(theme: &'a Theme, rows: &'a [(&'a str, String, Tone)]) -> Self {
+        Facts {
+            theme,
+            rows,
+            columns: 2,
+        }
+    }
+
+    pub fn columns(mut self, columns: usize) -> Self {
+        self.columns = columns.max(1);
+        self
+    }
+
+    /// The lines, with the labels of a column padded to one width so the
+    /// values stand in a column of their own.
+    pub fn lines(&self) -> Vec<Line<'static>> {
+        let th = self.theme;
+        let key = Style::new().fg(th.c.muted_foreground);
+        let widest: Vec<usize> = (0..self.columns)
+            .map(|col| {
+                self.rows
+                    .iter()
+                    .skip(col)
+                    .step_by(self.columns)
+                    .map(|(label, _, _)| label.chars().count())
+                    .max()
+                    .unwrap_or(0)
+            })
+            .collect();
+        self.rows
+            .chunks(self.columns)
+            .map(|chunk| {
+                let mut spans = Vec::new();
+                for (i, (label, value, tone)) in chunk.iter().enumerate() {
+                    if i > 0 {
+                        spans.push(Span::styled("   ", key));
+                    }
+                    let pad = widest[i].saturating_sub(label.chars().count());
+                    spans.push(Span::styled(format!("{}{} ", label, " ".repeat(pad)), key));
+                    spans.push(Span::styled(
+                        value.clone(),
+                        Style::new().fg(th.tone(*tone).unwrap_or(th.c.card_foreground)),
+                    ));
+                }
+                Line::from(spans)
+            })
+            .collect()
+    }
+}
+
+impl Widget for Facts<'_> {
+    fn render(self, area: Rect, buf: &mut Buffer) {
+        let bg = self.theme.c.card;
+        Paragraph::new(self.lines())
+            .style(Style::new().bg(bg))
+            .render(area, buf);
+    }
+}
+
+// ── Braille: four times the resolution a block has ──────────────────────
+
+/// A chart drawn in braille dots: two samples per column, four levels per
+/// row, so a strip three cells high carries twelve levels where a block
+/// sparkline carries eight in one.
+///
+/// homelab has the idea and never used it (`braille_spark` in
+/// `client/src/tui/fx.rs` is dead code, and its dashboard draws block
+/// bars). This is the same idea finished: an area under the line, a value
+/// that crosses a threshold painted in the theme's warning colour, and no
+/// colour of its own.
+pub struct Spark<'a> {
+    theme: &'a Theme,
+    data: &'a [f64],
+    max: f64,
+    tone: Tone,
+    /// Above this share of `max`, a column takes the warning tone.
+    warn_above: Option<f64>,
+    /// Fill under the line, or draw the line alone.
+    fill: bool,
+}
+
+/// The dot bits of a braille cell: two columns of four.
+/// `DOTS[col][row]`, row 0 at the top.
+const DOTS: [[u8; 4]; 2] = [[0x01, 0x02, 0x04, 0x40], [0x08, 0x10, 0x20, 0x80]];
+
+impl<'a> Spark<'a> {
+    pub fn new(theme: &'a Theme, data: &'a [f64]) -> Self {
+        let max = data
+            .iter()
+            .copied()
+            .fold(0.0_f64, f64::max)
+            .max(f64::EPSILON);
+        Spark {
+            theme,
+            data,
+            max,
+            tone: Tone::Primary,
+            warn_above: None,
+            fill: true,
+        }
+    }
+
+    pub fn max(mut self, max: f64) -> Self {
+        self.max = max.max(f64::EPSILON);
+        self
+    }
+
+    pub fn tone(mut self, tone: Tone) -> Self {
+        self.tone = tone;
+        self
+    }
+
+    pub fn warn_above(mut self, share: f64) -> Self {
+        self.warn_above = Some(share);
+        self
+    }
+
+    pub fn fill(mut self, fill: bool) -> Self {
+        self.fill = fill;
+        self
+    }
+
+    /// The glyphs, row by row, and the share the tallest sample in each
+    /// cell column reached — a caller can colour by it, and a test can
+    /// read the shape without a buffer.
+    pub fn glyphs(&self, width: u16, height: u16) -> (Vec<String>, Vec<f64>) {
+        let (w, h) = (width as usize, height as usize);
+        if w == 0 || h == 0 {
+            return (Vec::new(), Vec::new());
+        }
+        let levels = h * 4;
+        // Two samples to a column, the last `2 * w` of them, right-aligned
+        // so the newest reading sits at the right edge.
+        let take = (w * 2).min(self.data.len());
+        let tail = &self.data[self.data.len() - take..];
+        let mut cells = vec![vec![0u8; w]; h];
+        let mut peak = vec![0.0_f64; w];
+        for (i, v) in tail.iter().enumerate() {
+            let col = w - take.div_ceil(2) + i / 2;
+            let half = i % 2;
+            let share = (v / self.max).clamp(0.0, 1.0);
+            peak[col] = peak[col].max(share);
+            let lit = ((share * levels as f64).round() as usize).clamp(1, levels);
+            // Row 0 is the top cell, so a value of `lit` levels fills the
+            // bottom `lit` of `levels`.
+            for level in 0..levels {
+                let from_bottom = levels - 1 - level;
+                let on = if self.fill {
+                    from_bottom < lit
+                } else {
+                    from_bottom + 1 == lit
+                };
+                if on {
+                    cells[level / 4][col] |= DOTS[half][level % 4];
+                }
+            }
+        }
+        let rows = cells
+            .into_iter()
+            .map(|row| {
+                row.into_iter()
+                    .map(|bits| char::from_u32(0x2800 + bits as u32).unwrap_or(' '))
+                    .collect::<String>()
+            })
+            .collect();
+        (rows, peak)
+    }
+}
+
+impl Widget for Spark<'_> {
+    fn render(self, area: Rect, buf: &mut Buffer) {
+        if area.is_empty() || self.data.is_empty() {
+            return;
+        }
+        let th = self.theme;
+        let (rows, peak) = self.glyphs(area.width, area.height);
+        let base = th.tone(self.tone).unwrap_or(th.c.primary);
+        for (y, row) in rows.iter().enumerate() {
+            for (x, glyph) in row.chars().enumerate() {
+                let colour = match self.warn_above {
+                    Some(share) if peak[x] > share => th.c.warning,
+                    _ => base,
+                };
+                let cell = &mut buf[(area.x + x as u16, area.y + y as u16)];
+                cell.set_symbol(&glyph.to_string());
+                cell.set_style(Style::new().fg(colour).bg(th.c.card));
+            }
+        }
+    }
+}
+
+// ── The table ───────────────────────────────────────────────────────────
+
+/// A column: its heading, its width, and which way its cells sit.
+#[derive(Clone, Copy, Debug)]
+pub struct Column<'a> {
+    pub head: &'a str,
+    pub width: u16,
+    /// Numbers read right-aligned; the package sets `tabular-nums` on
+    /// every table cell for the same reason.
+    pub right: bool,
+}
+
+impl<'a> Column<'a> {
+    pub fn new(head: &'a str, width: u16) -> Self {
+        Column {
+            head,
+            width,
+            right: false,
+        }
+    }
+
+    pub fn right(mut self) -> Self {
+        self.right = true;
+        self
+    }
+}
+
+/// A table in the register's own dress: the header plate, its case and
+/// tracking, the rule under it — including the one register that draws
+/// that rule as a gradient — and the row in hand on the theme's own
+/// selection plate.
+///
+/// The third gap `docs/HOMELAB_PROOF.md` measured, and the largest: the app
+/// grid cost 45 lines of hand-chosen style without it.
+pub struct DataTable<'a> {
+    theme: &'a Theme,
+    columns: &'a [Column<'a>],
+    rows: &'a [Vec<Line<'static>>],
+    selected: Option<usize>,
+    offset: usize,
+}
+
+impl<'a> DataTable<'a> {
+    pub fn new(
+        theme: &'a Theme,
+        columns: &'a [Column<'a>],
+        rows: &'a [Vec<Line<'static>>],
+    ) -> Self {
+        DataTable {
+            theme,
+            columns,
+            rows,
+            selected: None,
+            offset: 0,
+        }
+    }
+
+    pub fn selected(mut self, selected: usize) -> Self {
+        self.selected = Some(selected);
+        self
+    }
+
+    pub fn offset(mut self, offset: usize) -> Self {
+        self.offset = offset;
+        self
+    }
+
+    /// The header line, in the register's case and tracking.
+    pub fn header(&self) -> Line<'static> {
+        let th = self.theme;
+        let h = th.a.table;
+        let mut style = Style::new().add_modifier(h.modifier);
+        if let Some(bg) = th.tone(h.plate) {
+            style = style.bg(bg);
+        }
+        style = style.fg(th.tone(h.ink).unwrap_or(th.c.muted_foreground));
+        let spans = self
+            .columns
+            .iter()
+            .map(|c| {
+                let head = if h.uppercase {
+                    c.head.to_uppercase()
+                } else {
+                    c.head.to_string()
+                };
+                // The tracking goes on only where the column has room for
+                // it — the same rule a button's label follows: a heading
+                // that does not fit loses its spacing before its tail.
+                let spaced: String = head.chars().flat_map(|ch| [ch, ' ']).collect();
+                let head = if h.spaced && spaced.trim_end().chars().count() <= c.width as usize {
+                    spaced.trim_end().to_string()
+                } else {
+                    head
+                };
+                Span::styled(pad(&head, c.width, c.right), style)
+            })
+            .collect::<Vec<_>>();
+        Line::from(spans)
+    }
+
+    /// The rule under the header, cell by cell. A gradient register gets a
+    /// ramp from `--primary` to `--accent` across the whole width, which is
+    /// what `--kp-stripe` paints on the page.
+    fn rule_cells(&self, width: u16) -> Vec<(String, Color)> {
+        let th = self.theme;
+        let h = th.a.table;
+        let p = th.id.palette();
+        let glyph = match h.rule {
+            Rule::Thin => "─",
+            Rule::Heavy => "━",
+            Rule::Double => "═",
+            Rule::Gradient => "━",
+        };
+        (0..width)
+            .map(|x| {
+                let colour = match h.rule {
+                    Rule::Gradient => {
+                        let t = x as f32 / (width.max(2) - 1) as f32;
+                        th.depth.resolve(Role::Line, mix(p.primary, p.accent, t))
+                    }
+                    _ => th.tone(h.rule_tone).unwrap_or(th.c.border_strong),
+                };
+                (glyph.to_string(), colour)
+            })
+            .collect()
+    }
+}
+
+/// Pad a cell to its column, on the side its alignment asks for.
+fn pad(text: &str, width: u16, right: bool) -> String {
+    let width = width as usize;
+    let n = text.chars().count();
+    if n >= width {
+        return text.chars().take(width).collect();
+    }
+    let gap = " ".repeat(width - n);
+    if right {
+        format!("{gap}{text}")
+    } else {
+        format!("{text}{gap}")
+    }
+}
+
+impl Widget for DataTable<'_> {
+    fn render(self, area: Rect, buf: &mut Buffer) {
+        if area.is_empty() {
+            return;
+        }
+        let th = self.theme;
+        let plate = th.c.card;
+        let head_row = Rect { height: 1, ..area };
+        Paragraph::new(self.header())
+            .style(Style::new().bg(plate))
+            .render(head_row, buf);
+
+        if area.height >= 2 {
+            for (x, (glyph, colour)) in self.rule_cells(area.width).into_iter().enumerate() {
+                let cell = &mut buf[(area.x + x as u16, area.y + 1)];
+                cell.set_symbol(&glyph);
+                cell.set_style(Style::new().fg(colour).bg(plate));
+            }
+        }
+
+        let body = Rect {
+            y: area.y + 2,
+            height: area.height.saturating_sub(2),
+            ..area
+        };
+        let lines: Vec<Line<'static>> = self
+            .rows
+            .iter()
+            .map(|cells| {
+                let spans: Vec<Span<'static>> = cells
+                    .iter()
+                    .zip(self.columns)
+                    .flat_map(|(cell, col)| {
+                        let text: String = cell.spans.iter().map(|s| s.content.as_ref()).collect();
+                        let style = cell.spans.first().map(|s| s.style).unwrap_or_default();
+                        vec![Span::styled(pad(&text, col.width, col.right), style)]
+                    })
+                    .collect();
+                Line::from(spans)
+            })
+            .collect();
+        match self.selected {
+            Some(sel) => SelectList::new(th, &lines, sel)
+                .offset(self.offset)
+                .render(body, buf),
+            None => {
+                for (n, line) in lines.iter().skip(self.offset).enumerate() {
+                    if n as u16 >= body.height {
+                        break;
+                    }
+                    Paragraph::new(line.clone())
+                        .style(Style::new().bg(plate))
+                        .render(
+                            Rect {
+                                y: body.y + n as u16,
+                                height: 1,
+                                ..body
+                            },
+                            buf,
+                        );
+                }
+            }
+        }
     }
 }

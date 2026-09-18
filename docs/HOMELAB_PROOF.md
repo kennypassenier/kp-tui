@@ -46,10 +46,36 @@ indeterminate gauge (the deploy window) and a tree (`tui-tree-widget`).
 Neither belongs to this screen; both are named here so the next proof knows
 where to look.
 
-## What it says
+## The second pass, 2026-09-18
 
-The crate carries a screen of this shape today, and the next thing worth
-building is whichever of the three gaps the next screen hits first. None of
-them is a new idea: all three are components the web package already has,
-which is the same road the log line and the source hue took in the other
-direction (`gap-14` and `gap-15` in kp-themes).
+All three gaps were closed and the screen rebuilt on them.
+
+| | homelab | first pass | second pass |
+| --- | --- | --- | --- |
+| Drawing code, non-blank lines | 177 | 183 | 169 |
+| Lines of hand-chosen style | — | 103 | 0 |
+| Theme constants | 34 | 0 | 0 |
+| Themes | 1 | 22 | 22 |
+
+Fourteen lines shorter, and the 103 that were hand-rolled style are gone —
+what is left is data (the fixture rows) and calls. The screen also gained
+something it did not have: the load history as a braille chart, which is
+twelve levels in three rows where a block sparkline gives eight in one.
+
+What answered each gap:
+
+- **`Badge`** — a chip that ends the way its register ends a button (half
+  blocks where the theme is soft, brackets where it brackets), plus
+  `Badge::dot` for a status list. Also the `[ RUN ]` in terminal, which is
+  that register's brackets and not a decision of the screen's.
+- **`Facts`** — label and value in columns, the labels of a column padded
+  to one width, each value carrying its own tone.
+- **`DataTable`** — the header in the register's own plate, case and
+  tracking; the rule under it 1px, 2px or 3px per register — and a ramp
+  from `--primary` to `--accent` for synthwave, the one register that
+  draws that rule as a gradient. The tracking comes off a heading that
+  does not fit its column, the same rule a button's label follows.
+
+One thing deliberately not carried over: the 1px rule the base draws
+between body rows. On a page that is a pixel; in a cell grid it is a whole
+row, and it would halve how many records fit. The grid is the rule there.

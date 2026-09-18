@@ -5,12 +5,14 @@
 //! one cyan-and-green look. This is the same screen with the same data
 //! shape, drawn with the crate's widgets and no colour of its own.
 //!
-//! What the crate could not supply is written inline here with a
-//! `GAP:` comment, so the shortfall is code a reader can count rather
-//! than a claim in a document. `docs/HOMELAB_PROOF.md` totals it up.
+//! It was written first against what the crate had, and the three things
+//! it had to hand-roll became `Badge`, `Facts` and `DataTable`
+//! [docs/HOMELAB_PROOF.md]. This is the second pass: the same screen with
+//! those three in place, and the load history as a braille chart, which is
+//! four times the vertical resolution a block sparkline has.
 
 use kp_tui::{
-    SelectList, Theme,
+    Badge, Column, DataTable, Facts, SelectList, Spark, Theme, Tone,
     fx::{self, Motion},
     source_colour,
     widgets::Panel,
@@ -20,7 +22,7 @@ use ratatui::{
     layout::{Constraint, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Cell, Paragraph, Row, Table, Widget},
+    widgets::Widget,
 };
 
 pub struct Stack {
@@ -32,6 +34,8 @@ pub struct Stack {
     pub enabled: bool,
     pub env_sealed: bool,
     pub apps: &'static [(&'static str, bool, u32)],
+    /// A quarter of an hour of load, one reading a minute, 0..100.
+    pub load: [f64; 30],
 }
 
 pub const FLEET: [Stack; 5] = [
@@ -49,6 +53,12 @@ pub const FLEET: [Stack; 5] = [
             ("radarr", true, 2),
             ("qbittorrent", false, 7),
         ],
+
+        load: [
+            35.9, 38.3, 48.4, 45.1, 53.6, 53.5, 50.7, 55.8, 48.8, 51.2, 43.6, 40.0, 39.6, 40.0,
+            27.2, 24.4, 25.9, 27.3, 21.3, 18.8, 26.5, 17.1, 29.6, 66.3, 68.7, 72.8, 79.6, 89.9,
+            86.0, 93.8,
+        ],
     },
     Stack {
         name: "web",
@@ -59,6 +69,11 @@ pub const FLEET: [Stack; 5] = [
         enabled: true,
         env_sealed: true,
         apps: &[("caddy", true, 0), ("ghost", true, 1), ("umami", true, 0)],
+
+        load: [
+            38.8, 37.6, 40.5, 34.5, 33.1, 32.5, 34.9, 28.0, 22.3, 21.1, 15.1, 9.3, 11.9, 8.3, 1.3,
+            4.9, 5.0, 11.0, 12.1, 10.3, 22.7, 16.8, 24.9, 33.2, 29.6, 36.7, 33.4, 41.9, 43.0, 39.5,
+        ],
     },
     Stack {
         name: "backup",
@@ -69,6 +84,11 @@ pub const FLEET: [Stack; 5] = [
         enabled: false,
         env_sealed: false,
         apps: &[("restic", false, 0)],
+
+        load: [
+            26.9, 17.8, 19.1, 14.0, 9.5, 3.5, 3.8, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+            0.0, 7.4, 4.1, 13.6, 13.8, 16.2, 17.6, 27.1, 19.4, 19.6, 19.1, 21.7, 8.4, 8.5,
+        ],
     },
     Stack {
         name: "monitoring",
@@ -79,6 +99,12 @@ pub const FLEET: [Stack; 5] = [
         enabled: true,
         env_sealed: true,
         apps: &[("grafana", true, 0), ("prometheus", true, 0)],
+
+        load: [
+            33.1, 32.7, 27.5, 24.1, 13.7, 12.9, 10.7, 16.6, 18.2, 10.4, 13.4, 17.6, 21.8, 29.2,
+            34.9, 35.3, 35.9, 43.8, 45.3, 48.7, 53.2, 48.9, 44.6, 42.7, 39.5, 27.8, 33.4, 27.6,
+            24.7, 20.3,
+        ],
     },
     Stack {
         name: "dns",
@@ -89,6 +115,11 @@ pub const FLEET: [Stack; 5] = [
         enabled: true,
         env_sealed: true,
         apps: &[("blocky", true, 0)],
+
+        load: [
+            0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.8, 7.1, 8.0, 11.9, 17.9, 21.0, 27.2, 25.2, 36.4,
+            33.2, 26.4, 25.4, 23.4, 19.8, 12.6, 16.8, 14.2, 3.8, 0.6, 0.0, 0.0, 0.0, 0.0,
+        ],
     },
 ];
 
@@ -105,28 +136,6 @@ pub fn draw(frame: &mut Frame, th: &Theme, selected: usize, reveal_ms: u32, moti
         reveal_ms,
         motion,
     );
-}
-
-/// GAP 1 — a state dot and a tag. homelab writes `●`/`○` and `[UPD]`,
-/// `[OFF]` by hand; the package has `.kp-badge` on the web and this crate
-/// has nothing, so the glyphs and their colours are chosen here.
-fn dot(th: &Theme, online: bool) -> Span<'static> {
-    if online {
-        Span::styled("● ", Style::new().fg(th.c.success))
-    } else {
-        Span::styled("○ ", Style::new().fg(th.c.muted_foreground))
-    }
-}
-
-fn tag(th: &Theme, text: &'static str, warn: bool) -> Span<'static> {
-    Span::styled(
-        text,
-        Style::new().fg(if warn {
-            th.c.warning
-        } else {
-            th.c.muted_foreground
-        }),
-    )
 }
 
 fn draw_registry(
@@ -150,7 +159,8 @@ fn draw_registry(
             // homelab always decrypts it.
             let f = fx::frame(s.hostname, th.a.reveal, reveal_ms, motion);
             let mut spans = vec![
-                dot(th, s.online),
+                Badge::dot(th, s.online),
+                Span::raw(" "),
                 Span::styled(
                     f.text,
                     Style::new()
@@ -159,10 +169,12 @@ fn draw_registry(
                 ),
             ];
             if s.drift {
-                spans.push(tag(th, " [UPD]", true));
+                spans.push(Span::raw(" "));
+                spans.extend(Badge::new(th, "upd", Tone::Warning).spans());
             }
             if !s.enabled {
-                spans.push(tag(th, " [OFF]", false));
+                spans.push(Span::raw(" "));
+                spans.extend(Badge::new(th, "off", Tone::MutedInk).spans());
             }
             Line::from(spans)
         })
@@ -186,97 +198,100 @@ fn draw_detail(
     let inner = panel.block().inner(manifest);
     frame.render_widget(panel, manifest);
 
-    // GAP 2 — a facts list. Three rows of `label value   label value`,
-    // aligned by hand. homelab does the same, five times over its screens.
-    let key = Style::new().fg(th.c.muted_foreground);
-    let ok = Style::new().fg(th.c.success);
-    let warn = Style::new().fg(th.c.warning);
-    let bad = Style::new().fg(th.c.destructive);
-    let lines = vec![
-        Line::from(vec![
-            Span::styled("vmid ", key),
-            Span::styled(s.vmid.to_string(), Style::new().fg(th.c.card_foreground)),
-            Span::styled("   env ", key),
+    let facts = [
+        ("vmid", s.vmid.to_string(), Tone::Ink),
+        (
+            "env",
             if s.env_sealed {
-                Span::styled("sealed", ok)
+                "sealed".into()
             } else {
-                Span::styled("missing — deploy fails closed", bad)
+                "missing — deploy fails closed".to_string()
             },
-        ]),
-        Line::from(vec![
-            Span::styled("drift ", key),
+            if s.env_sealed {
+                Tone::Success
+            } else {
+                Tone::Danger
+            },
+        ),
+        (
+            "drift",
             if s.drift {
-                Span::styled("intent differs from applied", warn)
+                "intent differs from applied".into()
             } else {
-                Span::styled("none — intent is runtime", ok)
+                "none — intent is runtime".to_string()
             },
-            Span::styled("   nightly ", key),
+            if s.drift {
+                Tone::Warning
+            } else {
+                Tone::Success
+            },
+        ),
+        (
+            "nightly",
             if s.enabled {
-                Span::styled("enabled", ok)
+                "enabled".into()
             } else {
-                Span::styled("parked", warn)
+                "parked".to_string()
             },
-        ]),
-        Line::from(vec![
-            Span::styled("safety ", key),
-            Span::styled("whitelist · hostname-guard · fail-closed", ok),
-        ]),
+            if s.enabled {
+                Tone::Success
+            } else {
+                Tone::Warning
+            },
+        ),
+        (
+            "safety",
+            "whitelist · hostname-guard · fail-closed".to_string(),
+            Tone::Success,
+        ),
     ];
-    Paragraph::new(lines)
-        .style(Style::new().bg(th.c.card))
-        .render(inner, frame.buffer_mut());
+    let [facts_area, spark_area] =
+        Layout::horizontal([Constraint::Min(30), Constraint::Length(18)]).areas(inner);
+    Facts::new(th, &facts)
+        .columns(2)
+        .render(facts_area, frame.buffer_mut());
+    // The load of the last quarter hour, at four levels to the row.
+    Spark::new(th, &s.load)
+        .max(100.0)
+        .warn_above(0.8)
+        .render(spark_area, frame.buffer_mut());
 
     let title = format!("App grid · {} units", s.apps.len());
     let panel = Panel::new(th, &title);
     let inner = panel.block().inner(grid);
     frame.render_widget(panel, grid);
 
-    // GAP 3 — a themed table. ratatui's own Table takes the styles one at
-    // a time; the crate has no widget that gives a header, a rule and a
-    // row rhythm the register's own way, so every style here is chosen in
-    // the demo rather than asked of the theme.
-    let header = Row::new(vec!["app", "state", "restarts"]).style(
-        Style::new()
-            .fg(th.c.muted_foreground)
-            .add_modifier(th.a.title_modifier),
-    );
-    let rows: Vec<Row> = s
+    let columns = [
+        Column::new("app", 16),
+        Column::new("state", 9),
+        Column::new("restarts", 10).right(),
+    ];
+    let rows: Vec<Vec<Line<'static>>> = s
         .apps
         .iter()
         .map(|(name, running, restarts)| {
-            let (label, style) = if *running {
-                ("running", Style::new().fg(th.c.success))
-            } else {
-                ("down", Style::new().fg(th.c.destructive))
-            };
-            Row::new(vec![
-                Cell::from(Span::styled(
+            vec![
+                Line::from(Span::styled(
                     (*name).to_string(),
                     Style::new().fg(th.c.card_foreground),
                 )),
-                Cell::from(Span::styled(label, style)),
-                Cell::from(Span::styled(
+                Line::from(if *running {
+                    Badge::new(th, "run", Tone::Success).spans()
+                } else {
+                    Badge::new(th, "down", Tone::Danger).plated(true).spans()
+                }),
+                Line::from(Span::styled(
                     restarts.to_string(),
-                    if *restarts > 0 {
-                        Style::new().fg(th.c.warning)
+                    Style::new().fg(if *restarts > 0 {
+                        th.c.warning
                     } else {
-                        Style::new().fg(th.c.muted_foreground)
-                    },
+                        th.c.muted_foreground
+                    }),
                 )),
-            ])
+            ]
         })
         .collect();
-    Table::new(
-        rows,
-        [
-            Constraint::Length(16),
-            Constraint::Length(9),
-            Constraint::Min(8),
-        ],
-    )
-    .header(header)
-    .style(Style::new().bg(th.c.card))
-    .render(inner, frame.buffer_mut());
+    DataTable::new(th, &columns, &rows).render(inner, frame.buffer_mut());
 
     // The sweep the register declares crosses the grid, where homelab's
     // crosses it always and in one hard-coded colour.

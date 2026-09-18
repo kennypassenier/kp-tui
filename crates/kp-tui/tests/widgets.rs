@@ -5,8 +5,9 @@
 //! this crate's.
 
 use kp_tui::{
-    AlarmPanel, ColorDepth, CommandPalette, Field, KeyHints, LogPane, Meter, Popup, PopupKind,
-    SelectList, Stepper, Surface, Theme, ThemeId, Ticker, Tone,
+    AlarmPanel, Badge, ColorDepth, Column, CommandPalette, DataTable, Facts, Field, KeyHints,
+    LogPane, Meter, Popup, PopupKind, SelectList, Spark, Stepper, Surface, Theme, ThemeId, Ticker,
+    Tone,
     anatomy::Reveal,
     color::Rgb,
     dashboard::rate,
@@ -1086,4 +1087,166 @@ fn a_stepper_always_reads_as_a_sequence() {
             id.name()
         );
     }
+}
+
+#[test]
+fn a_badge_ends_its_plate_the_way_its_register_ends_a_button() {
+    for id in ThemeId::ALL {
+        let th = Theme::new(id, ColorDepth::TrueColor);
+        let p = id.palette();
+        let bare = Badge::new(&th, "upd", Tone::Warning).spans();
+        let text: String = bare.iter().map(|s| s.content.as_ref()).collect();
+        let want = if th.a.uppercase_labels { "UPD" } else { "upd" };
+        assert!(text.contains(want), "{}: {text}", id.name());
+        assert_eq!(bare[0].style.fg, Some(rgb(p.warning)), "{}", id.name());
+
+        let plated = Badge::new(&th, "down", Tone::Danger).plated(true).spans();
+        let on_plate = plated
+            .iter()
+            .find(|s| s.style.bg == Some(rgb(p.destructive)));
+        assert!(on_plate.is_some(), "{}: no plate", id.name());
+        // A soft-ended register caps the chip with half blocks, the way its
+        // buttons end.
+        if th.a.button_face == kp_tui::ButtonFace::Soft {
+            assert_eq!(plated[0].content.as_ref(), "▐", "{}", id.name());
+        }
+    }
+    let th = Theme::new(ThemeId::TERMINAL, ColorDepth::TrueColor);
+    assert_eq!(
+        Badge::dot(&th, true).style.fg,
+        Some(rgb(ThemeId::TERMINAL.palette().success))
+    );
+    assert_eq!(Badge::dot(&th, false).content.as_ref(), "○");
+}
+
+#[test]
+fn facts_line_their_values_up_in_a_column() {
+    let th = Theme::new(ThemeId::FORMAL, ColorDepth::TrueColor);
+    let p = ThemeId::FORMAL.palette();
+    let rows = [
+        ("vmid", "112".to_string(), Tone::Ink),
+        ("env", "sealed".to_string(), Tone::Success),
+        ("drift", "none".to_string(), Tone::Success),
+        ("nightly", "parked".to_string(), Tone::Warning),
+    ];
+    let lines = Facts::new(&th, &rows).columns(2).lines();
+    assert_eq!(lines.len(), 2);
+    // "vmid" and "drift" share a column, so both labels are padded to five.
+    let first: String = lines[0].spans[0].content.to_string();
+    let second: String = lines[1].spans[0].content.to_string();
+    assert_eq!(
+        first.chars().count(),
+        second.chars().count(),
+        "{first:?} {second:?}"
+    );
+    // Every value keeps the tone it was given.
+    let warn = lines[1]
+        .spans
+        .iter()
+        .find(|s| s.content.contains("parked"))
+        .unwrap();
+    assert_eq!(warn.style.fg, Some(rgb(p.warning)));
+}
+
+#[test]
+fn a_table_wears_the_register_s_own_header() {
+    let columns = [
+        Column::new("app", 12),
+        Column::new("state", 8),
+        Column::new("restarts", 9).right(),
+    ];
+    let rows = vec![
+        vec![Line::from("caddy"), Line::from("run"), Line::from("0")],
+        vec![Line::from("ghost"), Line::from("down"), Line::from("12")],
+    ];
+    // Six registers give the header a plate of its own; sixteen do not.
+    let plated: Vec<&str> = ThemeId::ALL
+        .iter()
+        .filter(|id| id.anatomy().table.plate != Tone::None)
+        .map(|id| id.name())
+        .collect();
+    assert_eq!(plated.len(), 6, "{plated:?}");
+
+    for id in ThemeId::ALL {
+        let th = Theme::new(id, ColorDepth::TrueColor);
+        let table = DataTable::new(&th, &columns, &rows);
+        let head: String = table
+            .header()
+            .spans
+            .iter()
+            .map(|s| s.content.as_ref())
+            .collect();
+        assert_eq!(head.chars().count(), 29, "{}: {head:?}", id.name());
+        if th.a.table.uppercase {
+            assert!(
+                head.contains("APP") || head.contains("A P P"),
+                "{}",
+                id.name()
+            );
+        }
+        // The numbers sit at the right edge of their column.
+        let mut buf = Buffer::empty(Rect::new(0, 0, 29, 5));
+        DataTable::new(&th, &columns, &rows).render(buf.area, &mut buf);
+        let row: String = (0..29).map(|x| buf[(x, 2)].symbol().to_string()).collect();
+        assert!(row.trim_end().ends_with('0'), "{}: {row:?}", id.name());
+        // And the rule under the header is drawn.
+        let rule: String = (0..29).map(|x| buf[(x, 1)].symbol().to_string()).collect();
+        assert!(
+            rule.chars().all(|c| "─━═".contains(c)),
+            "{}: {rule:?}",
+            id.name()
+        );
+    }
+
+    // synthwave draws that rule as a ramp: the two ends differ.
+    let sw = Theme::new(
+        ThemeId::from_name("synthwave").unwrap(),
+        ColorDepth::TrueColor,
+    );
+    let mut buf = Buffer::empty(Rect::new(0, 0, 29, 5));
+    DataTable::new(&sw, &columns, &rows).render(buf.area, &mut buf);
+    assert_ne!(buf[(0, 1)].fg, buf[(28, 1)].fg, "the gradient rule");
+    // And every other register draws one colour from end to end.
+    let term = Theme::new(ThemeId::TERMINAL, ColorDepth::TrueColor);
+    let mut plain = Buffer::empty(Rect::new(0, 0, 29, 5));
+    DataTable::new(&term, &columns, &rows).render(plain.area, &mut plain);
+    assert_eq!(plain[(0, 1)].fg, plain[(28, 1)].fg);
+}
+
+#[test]
+fn a_braille_chart_carries_four_levels_to_the_row() {
+    let th = Theme::new(ThemeId::CYBERPUNK, ColorDepth::TrueColor);
+    // A ramp from nothing to full, two samples a column.
+    let data: Vec<f64> = (0..20).map(|i| i as f64 * 5.0).collect();
+    let (rows, peak) = Spark::new(&th, &data).max(100.0).glyphs(10, 3);
+    assert_eq!(rows.len(), 3);
+    assert_eq!(peak.len(), 10);
+    assert!(peak[0] < peak[9], "{peak:?}");
+    // Every glyph is a braille cell, and the top row only lights up where
+    // the value is in the top third.
+    assert!(
+        rows.iter()
+            .all(|r| r.chars().all(|c| ('\u{2800}'..='\u{28FF}').contains(&c)))
+    );
+    let top = &rows[0];
+    assert_eq!(top.chars().next(), Some('\u{2800}'), "the low end is empty");
+    assert_ne!(top.chars().last(), Some('\u{2800}'), "the high end is lit");
+    // Three rows of braille carry twelve levels where three rows of block
+    // characters carry eight per row but only one shape per column: count
+    // the distinct pictures a flat line can make between empty and full.
+    let mut seen = std::collections::HashSet::new();
+    for pct in 0..=100 {
+        let flat = vec![pct as f64; 20];
+        let (rows, _) = Spark::new(&th, &flat).max(100.0).glyphs(10, 3);
+        seen.insert(rows.join("|"));
+    }
+    assert_eq!(seen.len(), 12, "twelve levels in three rows");
+    // A peak over the threshold takes the warning colour.
+    let mut buf = Buffer::empty(Rect::new(0, 0, 10, 3));
+    Spark::new(&th, &data)
+        .max(100.0)
+        .warn_above(0.8)
+        .render(buf.area, &mut buf);
+    assert_eq!(buf[(9, 0)].fg, rgb(ThemeId::CYBERPUNK.palette().warning));
+    assert_eq!(buf[(0, 0)].fg, rgb(ThemeId::CYBERPUNK.palette().primary));
 }
