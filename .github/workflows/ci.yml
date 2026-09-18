@@ -1,0 +1,29 @@
+# The three checks every commit already passes locally, run again where a
+# reader of the public repository can see them. No third-party actions: the
+# runner ships rustup, and the crate has no dependencies to cache that are
+# worth an action of their own.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Edition 2024 and let-chains; built locally against 1.97.1.
+      - name: Rust, current stable
+        run: rustup update --no-self-update stable && rustup default stable && rustc --version
+      - name: Formatting
+        run: cargo fmt --all -- --check
+      - name: Clippy, with warnings as errors
+        run: cargo clippy --all-targets -- -D warnings
+      - name: Tests
+        run: cargo test --workspace
