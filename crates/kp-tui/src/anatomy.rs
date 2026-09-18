@@ -112,6 +112,7 @@ pub enum Tone {
     Success,
     Warning,
     Danger,
+    Info,
     MutedInk,
 }
 

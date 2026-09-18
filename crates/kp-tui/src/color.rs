@@ -160,3 +160,27 @@ fn ansi16(role: Role, c: Rgb) -> Color {
         }
     }
 }
+
+/// Relative luminance, WCAG 2.1.
+fn luminance(c: Rgb) -> f32 {
+    let ch = |v: u8| {
+        let v = v as f32 / 255.0;
+        if v <= 0.04045 {
+            v / 12.92
+        } else {
+            ((v + 0.055) / 1.055).powf(2.4)
+        }
+    };
+    0.2126 * ch(c.0) + 0.7152 * ch(c.1) + 0.0722 * ch(c.2)
+}
+
+/// The contrast ratio between two painted colours, 1.0 to 21.0.
+///
+/// The same reading `gates/colour.mjs` takes in kp-themes: the channels are
+/// already whole bytes here, which is what that gate rounds to before it
+/// measures, so the two agree.
+pub fn contrast(a: Rgb, b: Rgb) -> f32 {
+    let (x, y) = (luminance(a), luminance(b));
+    let (hi, lo) = if x > y { (x, y) } else { (y, x) };
+    (hi + 0.05) / (lo + 0.05)
+}

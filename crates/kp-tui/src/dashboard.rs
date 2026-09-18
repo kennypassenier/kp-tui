@@ -20,6 +20,7 @@ use ratatui::{
     },
 };
 
+use crate::anatomy::Tone;
 use crate::color::{ColorDepth, Role};
 use crate::effects::mix;
 use crate::fx::Motion;
@@ -202,30 +203,38 @@ pub fn rate(bps: f64) -> String {
 /// The level's look. The tag text carries the level on its own, so 16
 /// colours (where two roles can land on the same hue) stay readable;
 /// error and critical are also bold, and critical sits on a plate.
+/// A severity tag's style. Every state colour goes through `Theme::ink`,
+/// which measures it against the card and lifts it if it cannot be read
+/// there — the state tokens are plates, and using one as an ink is what
+/// made synthwave's "sealed" green read at 1.19:1.
 pub fn severity_style(th: &Theme, s: Severity) -> Style {
-    let c = &th.c;
+    let card = th.id.palette().card;
     match s {
-        Severity::Debug => Style::new().fg(c.muted_foreground),
-        Severity::Info => Style::new().fg(c.info_foreground),
-        Severity::Notice => Style::new().fg(c.success_foreground),
+        Severity::Debug => Style::new().fg(th.c.muted_foreground),
+        Severity::Info => Style::new().fg(th.ink(Tone::Info, card)),
+        Severity::Notice => Style::new().fg(th.ink(Tone::Success, card)),
         Severity::Warning => Style::new()
-            .fg(c.warning_foreground)
+            .fg(th.ink(Tone::Warning, card))
             .add_modifier(Modifier::BOLD),
-        Severity::Error => Style::new().fg(c.destructive).add_modifier(Modifier::BOLD),
+        Severity::Error => Style::new()
+            .fg(th.ink(Tone::Danger, card))
+            .add_modifier(Modifier::BOLD),
+        // The only one that takes a plate, because the worst line on the
+        // screen should read as a plate.
         Severity::Critical => Style::new()
-            .bg(c.destructive)
-            .fg(c.destructive_foreground)
+            .bg(th.c.destructive)
+            .fg(th.on_plate(th.id.palette().destructive))
             .add_modifier(Modifier::BOLD),
     }
 }
 
 pub fn message_style(th: &Theme, s: Severity) -> Style {
-    let c = &th.c;
+    let card = th.id.palette().card;
     match s {
-        Severity::Debug => Style::new().fg(c.muted_foreground),
-        Severity::Info | Severity::Notice => Style::new().fg(c.card_foreground),
-        Severity::Warning => Style::new().fg(c.warning_foreground),
-        Severity::Error | Severity::Critical => Style::new().fg(c.destructive),
+        Severity::Debug => Style::new().fg(th.c.muted_foreground),
+        Severity::Info | Severity::Notice => Style::new().fg(th.c.card_foreground),
+        Severity::Warning => Style::new().fg(th.ink(Tone::Warning, card)),
+        Severity::Error | Severity::Critical => Style::new().fg(th.ink(Tone::Danger, card)),
     }
 }
 

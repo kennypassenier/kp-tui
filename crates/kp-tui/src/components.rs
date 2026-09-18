@@ -113,7 +113,11 @@ impl<'a> Popup<'a> {
         if self.kind == PopupKind::Danger {
             // The frame turns destructive, in place: same glyphs, the colour
             // that says what this dialog does.
-            let danger = Style::new().fg(t.destructive).bg(t.popover);
+            let danger = Style::new()
+                .fg(self
+                    .theme
+                    .ink(Tone::Danger, self.theme.id.palette().popover))
+                .bg(t.popover);
             for x in area.x..area.right() {
                 buf[(x, area.y)].set_style(danger);
                 buf[(x, area.bottom() - 1)].set_style(danger);
@@ -469,7 +473,7 @@ impl<'a> LogPane<'a> {
                 state,
                 if l.paused() {
                     Style::new()
-                        .fg(c.warning_foreground)
+                        .fg(self.theme.ink(Tone::Warning, self.theme.id.palette().card))
                         .add_modifier(Modifier::BOLD)
                 } else {
                     muted
@@ -916,7 +920,9 @@ impl<'a> Stepper<'a> {
                 (*step).to_string()
             };
             let style = match i.cmp(&self.current) {
-                std::cmp::Ordering::Less => Style::new().fg(t.success),
+                std::cmp::Ordering::Less => Style::new().fg(self
+                    .theme
+                    .ink(Tone::Success, self.theme.id.palette().background)),
                 std::cmp::Ordering::Equal => Style::new()
                     .bg(t.primary)
                     .fg(t.primary_foreground)
@@ -1012,27 +1018,18 @@ pub fn fuzzy_spans(theme: &Theme, item: &str, hits: &[usize], base: Style) -> Ve
 // ── The row a person is standing on ─────────────────────────────────────
 
 impl Theme {
-    /// A tone, resolved against this theme's palette. `Tone::None` has no
-    /// colour: a caller leaves that side of the style alone.
+    /// A tone as a plate colour, resolved for this terminal. `Tone::None`
+    /// has no colour: a caller leaves that side of the style alone.
+    ///
+    /// For TEXT in a state colour, reach for `Theme::ink` instead — the
+    /// state tokens are plates, and 43 of the 66 state/card pairs in the
+    /// set read under 4.5:1 when one is used as an ink.
     pub fn tone(&self, tone: Tone) -> Option<Color> {
-        let c = &self.c;
-        Some(match tone {
-            Tone::None => return None,
-            Tone::Background => c.background,
-            Tone::Card => c.card,
-            Tone::Muted => c.muted,
-            Tone::Line => c.border_strong,
-            Tone::Ink => c.foreground,
-            Tone::Primary => c.primary,
-            Tone::PrimaryInk => c.primary_foreground,
-            Tone::Secondary => c.secondary,
-            Tone::SecondaryInk => c.secondary_foreground,
-            Tone::Accent => c.accent,
-            Tone::MutedInk => c.muted_foreground,
-            Tone::Success => c.success,
-            Tone::Warning => c.warning,
-            Tone::Danger => c.destructive,
-        })
+        let role = match tone {
+            Tone::Ink | Tone::MutedInk | Tone::PrimaryInk | Tone::SecondaryInk => Role::Ink,
+            _ => Role::Surface,
+        };
+        self.tone_rgb(tone).map(|c| self.depth.resolve(role, c))
     }
 
     /// The style of a selected row in this theme.
@@ -1384,7 +1381,10 @@ impl<'a> Badge<'a> {
     /// name is read as part of the name.
     pub fn dot(theme: &Theme, up: bool) -> Span<'static> {
         if up {
-            Span::styled("●", Style::new().fg(theme.c.success))
+            Span::styled(
+                "●",
+                Style::new().fg(theme.ink(Tone::Success, theme.id.palette().card)),
+            )
         } else {
             Span::styled("○", Style::new().fg(theme.c.muted_foreground))
         }
@@ -1393,7 +1393,14 @@ impl<'a> Badge<'a> {
     /// The chip as spans, so it sits inside a line beside other text.
     pub fn spans(&self) -> Vec<Span<'static>> {
         let th = self.theme;
-        let colour = th.tone(self.tone).unwrap_or(th.c.muted_foreground);
+        let ground = th.id.palette().card;
+        // A bare chip is text on the card, so it takes an ink that can be
+        // read there; a plated one keeps the token as its plate.
+        let colour = if self.plated {
+            th.tone(self.tone).unwrap_or(th.c.muted)
+        } else {
+            th.ink(self.tone, ground)
+        };
         let label = if th.a.uppercase_labels {
             self.label.to_uppercase()
         } else {
@@ -1409,8 +1416,8 @@ impl<'a> Badge<'a> {
         // A plated chip ends the way this register ends a button: half
         // blocks for a rounded theme, square cells for a sharp one, the
         // register's own brackets where it has them.
-        let ink = th.tone(on_tone(self.tone)).unwrap_or(th.c.background);
-        let plate = Style::new().bg(colour).fg(ink);
+        let plate_rgb = th.tone_rgb(self.tone).unwrap_or(th.id.palette().muted);
+        let plate = Style::new().bg(colour).fg(th.on_plate(plate_rgb));
         let ground = Style::new().fg(colour).bg(th.c.card);
         match th.a.button_face {
             ButtonFace::Soft => vec![
@@ -1424,18 +1431,6 @@ impl<'a> Badge<'a> {
             }
             ButtonFace::Square => vec![Span::styled(format!(" {label} "), plate)],
         }
-    }
-}
-
-/// The ink that goes on a tone's plate.
-fn on_tone(tone: Tone) -> Tone {
-    match tone {
-        Tone::Primary => Tone::PrimaryInk,
-        Tone::Secondary => Tone::SecondaryInk,
-        // The package pairs every semantic colour with a foreground of its
-        // own; `Background` is the nearest role a palette lookup has for
-        // the ink that sits on one.
-        _ => Tone::Background,
     }
 }
 
@@ -1496,7 +1491,7 @@ impl<'a> Facts<'a> {
                     spans.push(Span::styled(format!("{}{} ", label, " ".repeat(pad)), key));
                     spans.push(Span::styled(
                         value.clone(),
-                        Style::new().fg(th.tone(*tone).unwrap_or(th.c.card_foreground)),
+                        Style::new().fg(th.ink(*tone, th.id.palette().card)),
                     ));
                 }
                 Line::from(spans)

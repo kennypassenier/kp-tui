@@ -912,7 +912,12 @@ fn a_stepper_marks_what_is_done_what_is_now_and_what_is_ahead() {
             "Review"
         };
         assert_eq!(styled(now).bg, Some(rgb(p.primary)), "{}", id.name());
-        assert_eq!(styled(done).fg, Some(rgb(p.success)), "{}", id.name());
+        assert_eq!(
+            styled(done).fg,
+            Some(th.ink(Tone::Success, p.background)),
+            "{}",
+            id.name()
+        );
         assert_eq!(
             styled(ahead).fg,
             Some(rgb(p.muted_foreground)),
@@ -1098,7 +1103,15 @@ fn a_badge_ends_its_plate_the_way_its_register_ends_a_button() {
         let text: String = bare.iter().map(|s| s.content.as_ref()).collect();
         let want = if th.a.uppercase_labels { "UPD" } else { "upd" };
         assert!(text.contains(want), "{}: {text}", id.name());
-        assert_eq!(bare[0].style.fg, Some(rgb(p.warning)), "{}", id.name());
+        // The chip's text takes an ink that can be read on the card, not
+        // the plate token: `--warning` on `--card` reads 1.19:1 in some
+        // registers.
+        assert_eq!(
+            bare[0].style.fg,
+            Some(th.ink(Tone::Warning, p.card)),
+            "{}",
+            id.name()
+        );
 
         let plated = Badge::new(&th, "down", Tone::Danger).plated(true).spans();
         let on_plate = plated
@@ -1114,7 +1127,7 @@ fn a_badge_ends_its_plate_the_way_its_register_ends_a_button() {
     let th = Theme::new(ThemeId::TERMINAL, ColorDepth::TrueColor);
     assert_eq!(
         Badge::dot(&th, true).style.fg,
-        Some(rgb(ThemeId::TERMINAL.palette().success))
+        Some(th.ink(Tone::Success, ThemeId::TERMINAL.palette().card))
     );
     assert_eq!(Badge::dot(&th, false).content.as_ref(), "○");
 }
@@ -1145,7 +1158,7 @@ fn facts_line_their_values_up_in_a_column() {
         .iter()
         .find(|s| s.content.contains("parked"))
         .unwrap();
-    assert_eq!(warn.style.fg, Some(rgb(p.warning)));
+    assert_eq!(warn.style.fg, Some(th.ink(Tone::Warning, p.card)));
 }
 
 #[test]
@@ -1294,4 +1307,38 @@ fn an_overlay_steps_the_page_back_and_throws_a_shadow() {
     paint(&mut small);
     Popup::new(&low, "Restore", (20, 6)).render_over(small.area, &mut small);
     assert_eq!(small[far].bg, before[far].bg);
+}
+
+#[test]
+fn every_state_ink_can_be_read_where_it_is_painted() {
+    // The fault Kenny found on 2026-09-18: synthwave's "sealed" green read
+    // at 1.19:1 on the card, because `--success` is a PLATE and was being
+    // used as an ink. Measured across the set at the time: 43 of the 66
+    // state/card pairs were under the bar, ten of them under 1.5:1.
+    use kp_tui::color::contrast;
+    for id in ThemeId::ALL {
+        let th = Theme::new(id, ColorDepth::TrueColor);
+        let p = id.palette();
+        for surface in [p.card, p.background, p.popover] {
+            for tone in [Tone::Success, Tone::Warning, Tone::Danger, Tone::Info] {
+                let ink = th.ink_rgb(tone, surface);
+                let read = contrast(ink, surface);
+                assert!(
+                    read >= 4.5,
+                    "{}: {tone:?} on {surface:?} reads {read:.2}:1",
+                    id.name()
+                );
+            }
+        }
+        // And the ink on a state PLATE is readable too, which is what a
+        // plated badge and a critical log line paint.
+        for plate in [p.success, p.warning, p.destructive, p.primary] {
+            let read = contrast(th.on_plate_rgb(plate), plate);
+            assert!(
+                read >= 4.5,
+                "{}: the ink on {plate:?} reads {read:.2}:1",
+                id.name()
+            );
+        }
+    }
 }

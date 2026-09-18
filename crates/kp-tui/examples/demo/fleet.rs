@@ -283,7 +283,7 @@ fn draw_detail(
                 Line::from(Span::styled(
                     restarts.to_string(),
                     Style::new().fg(if *restarts > 0 {
-                        th.c.warning
+                        th.ink(Tone::Warning, th.id.palette().card)
                     } else {
                         th.c.muted_foreground
                     }),
