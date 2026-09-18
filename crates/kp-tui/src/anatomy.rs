@@ -43,6 +43,67 @@ pub enum ButtonFace {
     Bracket,
 }
 
+/// A colour by the role it plays, so a row of the table below can name
+/// one without reaching into the palette itself.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Tone {
+    /// No colour at all: the ground the row already sits on.
+    None,
+    Background,
+    Card,
+    Muted,
+    Line,
+    Ink,
+    Primary,
+    PrimaryInk,
+    Secondary,
+    SecondaryInk,
+    Accent,
+}
+
+/// How a register paints the row a person is standing on.
+///
+/// Measured from the twenty-two registers on 2026-09-17: four plate it in
+/// `--primary`, one in `--muted`, and the rest either tint it with another
+/// token or leave the ground alone and speak with a bar, a bracket or a
+/// weight. The package's own base rule (`css/components.css:2359`,
+/// `background: var(--muted); font-weight: 600`) is what a silent register
+/// inherits.
+///
+/// A terminal has no pseudo-element, so a register's `::before` bar or
+/// bracket becomes a leading glyph in the same colour — the nearest a cell
+/// grid has to a rule drawn down the leading edge.
+///
+/// A register that writes `background: none` still inherits the base
+/// rule's `font-weight: 600`, so every row here with `plate: Tone::None`
+/// carries BOLD. Without it, a theme whose selected ink equals its body
+/// ink — light is one — would show no selection at all in a terminal,
+/// which the web never does.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Selection {
+    pub plate: Tone,
+    pub ink: Tone,
+    /// The glyph before the label, "" for a register that adds none.
+    pub marker: &'static str,
+    pub marker_tone: Tone,
+    /// `font-weight`, `text-decoration` on the selected state.
+    pub modifier: Modifier,
+    /// A register that sets `letter-spacing` on it.
+    pub spaced: bool,
+}
+
+/// No marker, no weight: the row is told apart by its plate alone.
+pub const fn plated(plate: Tone, ink: Tone) -> Selection {
+    Selection {
+        plate,
+        ink,
+        marker: "",
+        marker_tone: Tone::None,
+        modifier: Modifier::empty(),
+        spaced: false,
+    }
+}
+
 /// The static texture a register paints on its ground (DI9), as near as a
 /// cell grid comes to it. A wash of one dim glyph, never a colour change:
 /// the CSS layers sit between 2 % and 6 % alpha, and anything louder in a
@@ -130,6 +191,8 @@ pub struct Anatomy {
     pub selected_tab_modifier: Modifier,
     pub cursor: SetCursorStyle,
     pub reveal: Reveal,
+    /// The row a person is standing on.
+    pub selection: Selection,
     /// What moves: the texture, the alarm, the spinner.
     pub fx: Fx,
 }
@@ -202,6 +265,9 @@ pub const FORMAL: Anatomy = Anatomy {
         alarm: STILL_ALARM,
         spinner: Spinner::Braille,
     },
+    // formal-register.css: the current sidenav link takes `background:
+    // var(--muted)` with `color: var(--primary)`.
+    selection: plated(Tone::Muted, Tone::Primary),
 };
 
 /// cyberpunk. Signal yellow on a void; square or notched; a machine voice.
@@ -260,6 +326,9 @@ pub const CYBERPUNK: Anatomy = Anatomy {
         },
         spinner: Spinner::Half,
     },
+    // cyberpunk-register.css:1736: `--primary` plate,
+    // `--primary-foreground` ink, and a notched corner a cell cannot cut.
+    selection: plated(Tone::Primary, Tone::PrimaryInk),
 };
 
 /// terminal. A phosphor CRT that accepts a terminal's constraints.
@@ -302,6 +371,14 @@ pub const TERMINAL: Anatomy = Anatomy {
         alarm: BASELINE_ALARM,
         spinner: Spinner::Ascii,
     },
+    // terminal-register.css:1528: the `--primary` plate, and :1534 a
+    // `::before` carrying a literal `>` in the plate's own ink — the only
+    // register whose marker is a glyph rather than a rule.
+    selection: Selection {
+        marker: "> ",
+        marker_tone: Tone::PrimaryInk,
+        ..plated(Tone::Primary, Tone::PrimaryInk)
+    },
 };
 
 /// light. Proposed in research/ratatui/ANATOMY_PROPOSAL.md, which cites the
@@ -327,6 +404,12 @@ pub const LIGHT: Anatomy = Anatomy {
         sweep: None,
         alarm: BASELINE_ALARM,
         spinner: Spinner::Braille,
+    },
+    // light-register.css: the current link keeps the ground and takes
+    // `--foreground`.
+    selection: Selection {
+        modifier: Modifier::BOLD,
+        ..plated(Tone::None, Tone::Ink)
     },
 };
 
@@ -357,6 +440,8 @@ pub const DARK: Anatomy = Anatomy {
         alarm: BASELINE_ALARM,
         spinner: Spinner::Quadrant,
     },
+    // dark-register.css: an `--accent` plate under `--foreground`.
+    selection: plated(Tone::Accent, Tone::Ink),
 };
 
 /// synthwave. Proposed in research/ratatui/ANATOMY_PROPOSAL.md, which cites the
@@ -383,6 +468,14 @@ pub const SYNTHWAVE: Anatomy = Anatomy {
         sweep: None,
         alarm: BASELINE_ALARM,
         spinner: Spinner::Bar,
+    },
+    // synthwave-register.css: no plate; an inset `--primary` bar with a
+    // glow, which in a cell grid is the bar without the glow.
+    selection: Selection {
+        modifier: Modifier::BOLD,
+        marker: "▌",
+        marker_tone: Tone::Primary,
+        ..plated(Tone::None, Tone::Ink)
     },
 };
 
@@ -411,6 +504,8 @@ pub const PASTEL: Anatomy = Anatomy {
         alarm: STILL_ALARM,
         spinner: Spinner::Braille,
     },
+    // pastel-register.css: a `--primary` plate with its own ink.
+    selection: plated(Tone::Primary, Tone::PrimaryInk),
 };
 
 /// forest. Proposed in research/ratatui/ANATOMY_PROPOSAL.md, which cites the
@@ -437,6 +532,12 @@ pub const FOREST: Anatomy = Anatomy {
         sweep: None,
         alarm: BASELINE_ALARM,
         spinner: Spinner::Braille,
+    },
+    // forest-register.css: the ground is left alone and the label takes
+    // `--primary`.
+    selection: Selection {
+        modifier: Modifier::BOLD,
+        ..plated(Tone::None, Tone::Primary)
     },
 };
 
@@ -465,6 +566,14 @@ pub const HIGH_CONTRAST: Anatomy = Anatomy {
         alarm: STILL_ALARM,
         spinner: Spinner::Half,
     },
+    // high-contrast-register.css: no plate, inset `--foreground` bars and
+    // `font-weight: 700` — this theme says everything with the ink it has.
+    selection: Selection {
+        marker: "▌",
+        marker_tone: Tone::Ink,
+        modifier: Modifier::BOLD,
+        ..plated(Tone::None, Tone::Ink)
+    },
 };
 
 /// sepia. Proposed in research/ratatui/ANATOMY_PROPOSAL.md, which cites the
@@ -491,6 +600,13 @@ pub const SEPIA: Anatomy = Anatomy {
         sweep: None,
         alarm: BASELINE_ALARM,
         spinner: Spinner::Braille,
+    },
+    // sepia-register.css: a `--card` plate, `--primary` ink, and a
+    // `::before` bracket in `--primary`.
+    selection: Selection {
+        marker: "▏",
+        marker_tone: Tone::Primary,
+        ..plated(Tone::Card, Tone::Primary)
     },
 };
 
@@ -519,6 +635,14 @@ pub const BLUEPRINT: Anatomy = Anatomy {
         alarm: BASELINE_ALARM,
         spinner: Spinner::Quadrant,
     },
+    // blueprint-register.css: `background: none`, and a `::before` bar in
+    // `--border-strong` — a construction line rather than a plate.
+    selection: Selection {
+        modifier: Modifier::BOLD,
+        marker: "▌",
+        marker_tone: Tone::Line,
+        ..plated(Tone::None, Tone::Ink)
+    },
 };
 
 /// solstice. Proposed in research/ratatui/ANATOMY_PROPOSAL.md, which cites the
@@ -545,6 +669,15 @@ pub const SOLSTICE: Anatomy = Anatomy {
         sweep: None,
         alarm: BASELINE_ALARM,
         spinner: Spinner::Braille,
+    },
+    // solstice-register.css: a `--primary` gradient fading to transparent,
+    // plus an inset `--primary` bar. A cell grid cannot fade, so the bar is
+    // what survives.
+    selection: Selection {
+        modifier: Modifier::BOLD,
+        marker: "▌",
+        marker_tone: Tone::Primary,
+        ..plated(Tone::None, Tone::Ink)
     },
 };
 
@@ -576,6 +709,9 @@ pub const BRUTALISM: Anatomy = Anatomy {
         alarm: STILL_ALARM,
         spinner: Spinner::Half,
     },
+    // brutalism-register.css: a `--secondary` slab with its own ink — the
+    // only register that selects in the secondary colour.
+    selection: plated(Tone::Secondary, Tone::SecondaryInk),
 };
 
 /// deco. Proposed in research/ratatui/ANATOMY_PROPOSAL.md, which cites the
@@ -601,6 +737,13 @@ pub const DECO: Anatomy = Anatomy {
         sweep: None,
         alarm: BASELINE_ALARM,
         spinner: Spinner::Quadrant,
+    },
+    // deco-register.css: no plate, `--primary` ink and `letter-spacing:
+    // 0.1em` — the same spacing its buttons carry.
+    selection: Selection {
+        modifier: Modifier::BOLD,
+        spaced: true,
+        ..plated(Tone::None, Tone::Primary)
     },
 };
 
@@ -632,6 +775,9 @@ pub const PHANTOM: Anatomy = Anatomy {
         alarm: BASELINE_ALARM,
         spinner: Spinner::Quadrant,
     },
+    // phantom-register.css: the `::before` bar grows to `inline-size:
+    // 100%`, which is a `--primary` plate by another road.
+    selection: plated(Tone::Primary, Tone::PrimaryInk),
 };
 
 /// shade-light. Proposed in research/ratatui/ANATOMY_PROPOSAL.md, which cites the
@@ -662,6 +808,9 @@ pub const SHADE_LIGHT: Anatomy = Anatomy {
         alarm: BASELINE_ALARM,
         spinner: Spinner::Braille,
     },
+    // shade-light-register.css: the row drops to `--background` with a
+    // shadow, and the label takes `--primary`.
+    selection: plated(Tone::Background, Tone::Primary),
 };
 
 /// shade-dark. Proposed in research/ratatui/ANATOMY_PROPOSAL.md, which cites the
@@ -692,6 +841,9 @@ pub const SHADE_DARK: Anatomy = Anatomy {
         alarm: BASELINE_ALARM,
         spinner: Spinner::Quadrant,
     },
+    // shade-dark-register.css: the same drop to `--background`, inset
+    // shadows, `--foreground` ink.
+    selection: plated(Tone::Background, Tone::Ink),
 };
 
 /// retro. Proposed in research/ratatui/ANATOMY_PROPOSAL.md, which cites the
@@ -719,6 +871,9 @@ pub const RETRO: Anatomy = Anatomy {
         alarm: STILL_ALARM,
         spinner: Spinner::Bar,
     },
+    // retro-register.css: a `--primary` plate with its own ink, the way a
+    // selected item in that era always looked.
+    selection: plated(Tone::Primary, Tone::PrimaryInk),
 };
 
 /// grotesk. Proposed in research/ratatui/ANATOMY_PROPOSAL.md, which cites the
@@ -745,6 +900,13 @@ pub const GROTESK: Anatomy = Anatomy {
         sweep: None,
         alarm: STILL_ALARM,
         spinner: Spinner::Quadrant,
+    },
+    // grotesk-register.css: no plate at all; `font-weight: 800` and a
+    // tightened tracking do the work, and BOLD is the weight a terminal
+    // has.
+    selection: Selection {
+        modifier: Modifier::BOLD,
+        ..plated(Tone::None, Tone::Ink)
     },
 };
 
@@ -773,6 +935,11 @@ pub const LAPIS: Anatomy = Anatomy {
         alarm: BASELINE_ALARM,
         spinner: Spinner::Braille,
     },
+    // lapis-register.css: the ground stays, the label takes `--primary`.
+    selection: Selection {
+        modifier: Modifier::BOLD,
+        ..plated(Tone::None, Tone::Primary)
+    },
 };
 
 /// nostromo. Proposed in research/ratatui/ANATOMY_PROPOSAL.md, which cites the
@@ -799,6 +966,14 @@ pub const NOSTROMO: Anatomy = Anatomy {
         sweep: None,
         alarm: BASELINE_ALARM,
         spinner: Spinner::Ascii,
+    },
+    // nostromo-register.css declares no plate of its own, so it inherits
+    // the package base (`--muted`); its `::before` dot in `--primary` is
+    // its own.
+    selection: Selection {
+        marker: "•",
+        marker_tone: Tone::Primary,
+        ..plated(Tone::Muted, Tone::Ink)
     },
 };
 
@@ -830,6 +1005,8 @@ pub const TITANIUM: Anatomy = Anatomy {
         alarm: BASELINE_ALARM,
         spinner: Spinner::Quadrant,
     },
+    // titanium-register.css: an `--accent` plate under `--foreground`.
+    selection: plated(Tone::Accent, Tone::Ink),
 };
 
 /// Every theme's anatomy, in `themes/order.json`'s order, so `ThemeId`

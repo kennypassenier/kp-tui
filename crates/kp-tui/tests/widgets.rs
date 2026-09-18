@@ -5,18 +5,19 @@
 //! this crate's.
 
 use kp_tui::{
-    AlarmPanel, ColorDepth, Field, KeyHints, LogPane, Meter, Popup, PopupKind, Surface, Theme,
-    ThemeId, Ticker,
+    AlarmPanel, ColorDepth, CommandPalette, Field, KeyHints, LogPane, Meter, Popup, PopupKind,
+    SelectList, Stepper, Surface, Theme, ThemeId, Ticker, Tone,
     anatomy::Reveal,
     color::Rgb,
     dashboard::rate,
+    fuzzy, fuzzy_score,
     fx::{self, Motion},
     live, logs,
     logs::{LogBuffer, Severity},
     source_colour, spinner,
     widgets::{Button, ButtonState},
 };
-use ratatui::{buffer::Buffer, layout::Rect, style::Color, widgets::Widget};
+use ratatui::{buffer::Buffer, layout::Rect, style::Color, text::Line, widgets::Widget};
 
 fn rgb(c: Rgb) -> Color {
     Color::Rgb(c.0, c.1, c.2)
@@ -866,5 +867,223 @@ fn every_theme_turns_a_spinner_of_its_own_shape() {
             id.name()
         );
         assert_eq!(spinner(&th, 450, Motion::Reduced), first, "{}", id.name());
+    }
+}
+
+#[test]
+fn a_stepper_marks_what_is_done_what_is_now_and_what_is_ahead() {
+    let steps = ["Preset", "Name", "Resources", "Review"];
+    for id in ThemeId::ALL {
+        let th = Theme::new(id, ColorDepth::TrueColor);
+        let p = id.palette();
+        let line = Stepper::new(&th, &steps, 2).line();
+        let spans: Vec<&str> = line.spans.iter().map(|s| s.content.as_ref()).collect();
+        let joined = spans.join("");
+        for s in steps {
+            let want = if th.a.uppercase_labels {
+                s.to_uppercase()
+            } else {
+                s.to_string()
+            };
+            assert!(joined.contains(&want), "{}: {joined}", id.name());
+        }
+        // Done is the success ink, now is the plate, ahead is muted.
+        let styled = |needle: &str| {
+            line.spans
+                .iter()
+                .find(|s| s.content.contains(needle))
+                .map(|s| s.style)
+                .unwrap_or_default()
+        };
+        let now = if th.a.uppercase_labels {
+            "RESOURCES"
+        } else {
+            "Resources"
+        };
+        let done = if th.a.uppercase_labels {
+            "PRESET"
+        } else {
+            "Preset"
+        };
+        let ahead = if th.a.uppercase_labels {
+            "REVIEW"
+        } else {
+            "Review"
+        };
+        assert_eq!(styled(now).bg, Some(rgb(p.primary)), "{}", id.name());
+        assert_eq!(styled(done).fg, Some(rgb(p.success)), "{}", id.name());
+        assert_eq!(
+            styled(ahead).fg,
+            Some(rgb(p.muted_foreground)),
+            "{}",
+            id.name()
+        );
+    }
+}
+
+#[test]
+fn fuzzy_finds_a_subsequence_and_ranks_the_tight_one_first() {
+    // homelab's palette is a substring filter: "dpl" finds nothing there.
+    assert_eq!(fuzzy("dpl", "Deploy stack"), Some(vec![0, 2, 3]));
+    assert_eq!(fuzzy("", "Deploy stack"), Some(vec![]));
+    assert_eq!(fuzzy("zz", "Deploy stack"), None);
+    // Case is ignored in both directions.
+    assert!(fuzzy("DEP", "deploy").is_some() && fuzzy("dep", "DEPLOY").is_some());
+    // A run beats a scatter, and an early hit beats a late one.
+    let tight = fuzzy("dep", "Deploy stack").unwrap();
+    let loose = fuzzy("dep", "Down every process").unwrap();
+    assert!(
+        fuzzy_score(&tight) < fuzzy_score(&loose),
+        "{tight:?} {loose:?}"
+    );
+    let early = fuzzy("st", "Stop stack").unwrap();
+    let late = fuzzy("st", "Restart stack").unwrap();
+    assert!(fuzzy_score(&early) < fuzzy_score(&late));
+}
+
+#[test]
+fn the_selected_row_is_painted_the_way_its_register_paints_it() {
+    // Four registers plate the row in --primary; one in --muted; the rest
+    // speak with another token, a bar or a weight. Measured 2026-09-17.
+    let plated: Vec<&str> = ThemeId::ALL
+        .iter()
+        .filter(|id| id.anatomy().selection.plate == Tone::Primary)
+        .map(|id| id.name())
+        .collect();
+    assert_eq!(
+        plated,
+        vec!["cyberpunk", "pastel", "terminal", "phantom", "retro"]
+    );
+
+    let items = vec![
+        Line::from("Restart stack"),
+        Line::from("Deploy 2.4"),
+        Line::from("Roll back"),
+    ];
+    for id in ThemeId::ALL {
+        let th = Theme::new(id, ColorDepth::TrueColor);
+        let list = SelectList::new(&th, &items, 1);
+        let row = list.row(1);
+        let plain = list.row(0);
+        assert_ne!(
+            row.spans.iter().map(|s| s.style).collect::<Vec<_>>(),
+            plain.spans.iter().map(|s| s.style).collect::<Vec<_>>(),
+            "{}: the row in hand must differ from the rest",
+            id.name()
+        );
+        let sel = th.a.selection;
+        let style = th.selected_style();
+        match th.tone(sel.plate) {
+            Some(bg) => assert_eq!(style.bg, Some(bg), "{}", id.name()),
+            None => assert_eq!(style.bg, None, "{}", id.name()),
+        }
+        // A register that leaves the ground alone says it with ink, a
+        // marker or a weight — never with nothing.
+        if sel.plate == Tone::None {
+            assert!(
+                sel.ink != Tone::None
+                    || !sel.marker.is_empty()
+                    || sel.modifier != ratatui::style::Modifier::empty(),
+                "{} would show no selection at all",
+                id.name()
+            );
+        }
+    }
+
+    // terminal is the one register whose marker is a glyph: `> `.
+    let term = Theme::new(ThemeId::TERMINAL, ColorDepth::TrueColor);
+    let row = SelectList::new(&term, &items, 1).row(1);
+    assert!(row.spans[0].content.starts_with('>'), "{:?}", row.spans[0]);
+    // And an unselected row keeps the same columns, so the labels line up.
+    let other = SelectList::new(&term, &items, 1).row(0);
+    assert_eq!(
+        other.spans[0].content.chars().count(),
+        row.spans[0].content.chars().count()
+    );
+}
+
+#[test]
+fn the_command_palette_finds_by_subsequence_and_lifts_the_letters_that_hit() {
+    let th = Theme::new(ThemeId::CYBERPUNK, ColorDepth::TrueColor);
+    let items = ["Deploy stack", "Restart stack", "Roll back", "Open logs"];
+    let p = ThemeId::CYBERPUNK.palette();
+
+    let hits = CommandPalette::new(&th, "dpl", &items, 0).matches();
+    assert_eq!(hits.len(), 1, "{hits:?}");
+    assert_eq!(items[hits[0].0], "Deploy stack");
+
+    // "rs" hits both restart and roll-back-style items; the tighter one
+    // ranks first.
+    let ranked = CommandPalette::new(&th, "rst", &items, 0).matches();
+    assert_eq!(items[ranked[0].0], "Restart stack");
+
+    // An empty query keeps the caller's order.
+    let all = CommandPalette::new(&th, "", &items, 0).matches();
+    assert_eq!(all.len(), 4);
+    assert_eq!(all[0].0, 0);
+
+    // The letters that matched take the primary ink; the rest do not.
+    let spans = kp_tui::fuzzy_spans(
+        &th,
+        "Deploy stack",
+        &[0, 2, 3],
+        ratatui::style::Style::new(),
+    );
+    let lifted: String = spans
+        .iter()
+        .filter(|s| s.style.fg == Some(rgb(p.primary)))
+        .map(|s| s.content.as_ref())
+        .collect();
+    assert_eq!(lifted, "Dpl");
+    // And the mark survives the row in hand, where the plate is often the
+    // primary colour itself and the ink mark cannot be seen.
+    let rows = vec![Line::from(spans.clone())];
+    let row = SelectList::new(&th, &rows, 0).row(0);
+    let underlined: String = row
+        .spans
+        .iter()
+        .filter(|s| {
+            s.style
+                .add_modifier
+                .contains(ratatui::style::Modifier::UNDERLINED)
+        })
+        .map(|s| s.content.as_ref())
+        .collect();
+    assert_eq!(underlined, "Dpl");
+
+    // It draws over a screen and clears its own ground.
+    let mut buf = Buffer::empty(Rect::new(0, 0, 60, 16));
+    for y in 0..16 {
+        for x in 0..60 {
+            buf[(x, y)].set_symbol("#");
+        }
+    }
+    let area = CommandPalette::new(&th, "st", &items, 1)
+        .size((40, 8))
+        .render_over(buf.area, &mut buf);
+    let inside: String = (area.x + 1..area.x + area.width - 1)
+        .map(|x| buf[(x, area.y + 3)].symbol().to_string())
+        .collect();
+    assert!(!inside.contains('#'), "the ground is cleared: {inside:?}");
+    assert!(inside.contains("stack"), "{inside:?}");
+}
+
+#[test]
+fn a_stepper_always_reads_as_a_sequence() {
+    // Five registers divide their tabs with space alone; a row of steps
+    // needs something between them or it reads as five words.
+    for id in ThemeId::ALL {
+        let th = Theme::new(id, ColorDepth::TrueColor);
+        let line = Stepper::new(&th, &["One", "Two"], 0).line();
+        let joined: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
+        let between = joined
+            .split(if th.a.uppercase_labels { "ONE" } else { "One" })
+            .nth(1)
+            .unwrap_or("");
+        assert!(
+            between.chars().any(|c| !c.is_whitespace()),
+            "{}: nothing between the steps: {joined:?}",
+            id.name()
+        );
     }
 }

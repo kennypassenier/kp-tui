@@ -15,13 +15,14 @@ use ratatui::{
     widgets::{Block, Borders, Clear, Paragraph, Widget},
 };
 
-use crate::anatomy::Texture;
+use crate::anatomy::{Texture, Tone};
 use crate::color::{ColorDepth, Rgb, Role};
 use crate::effects::{self, mix};
 use crate::fx::Motion;
 use crate::logs::{LogBuffer, Severity};
 use crate::theme::Theme;
 use crate::widgets::Panel;
+use ratatui::style::Color;
 
 /// How much of the screen a popup takes, and what it means.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -855,4 +856,412 @@ impl Widget for Ticker<'_> {
 /// is 900 ms in `css/components.css` and no register overrides it.
 pub fn spinner(theme: &Theme, elapsed_ms: u32, motion: Motion) -> &'static str {
     theme.a.fx.spinner.frame(elapsed_ms, 900, motion)
+}
+
+// ── The wizard's breadcrumb ─────────────────────────────────────────────
+
+/// Where a multi-step flow stands: the steps behind, the step in hand, the
+/// steps ahead.
+///
+/// homelab draws this once, in the create-container wizard
+/// (`client/src/tui/view/mod.rs:242`): five fixed crumbs, cyan plate on the
+/// active one, green on what is done, muted on what is not, with `▶`
+/// between. Here the plate, the ink and the divider are the theme's, and
+/// the steps come from the caller.
+pub struct Stepper<'a> {
+    theme: &'a Theme,
+    steps: &'a [&'a str],
+    current: usize,
+}
+
+impl<'a> Stepper<'a> {
+    pub fn new(theme: &'a Theme, steps: &'a [&'a str], current: usize) -> Self {
+        Stepper {
+            theme,
+            steps,
+            current,
+        }
+    }
+
+    /// The line, as spans, so a caller can put it in a block of its own.
+    /// GUESS: the divider is the theme's `tab_divider` — the mark it
+    /// already declares between items standing side by side in one row.
+    /// Nothing in a register speaks about a wizard's crumbs. The five
+    /// registers whose tabs are plates rather than words divide them with
+    /// space alone, and a row of steps with nothing between them does not
+    /// read as a sequence, so those get an arrow instead.
+    pub fn line(&self) -> Line<'static> {
+        let (t, a) = (&self.theme.c, self.theme.a);
+        let mut spans = Vec::new();
+        for (i, step) in self.steps.iter().enumerate() {
+            if i > 0 {
+                let divider = if a.tab_divider.trim().is_empty() {
+                    " ▸ "
+                } else {
+                    a.tab_divider
+                };
+                spans.push(Span::styled(
+                    divider.to_string(),
+                    Style::new().fg(t.muted_foreground),
+                ));
+            }
+            let label = if a.uppercase_labels {
+                step.to_uppercase()
+            } else {
+                (*step).to_string()
+            };
+            let style = match i.cmp(&self.current) {
+                std::cmp::Ordering::Less => Style::new().fg(t.success),
+                std::cmp::Ordering::Equal => Style::new()
+                    .bg(t.primary)
+                    .fg(t.primary_foreground)
+                    .add_modifier(a.title_modifier),
+                std::cmp::Ordering::Greater => Style::new().fg(t.muted_foreground),
+            };
+            // The step in hand keeps a cell of its plate on either side, the
+            // way every button in this crate is sized to its label plus air.
+            let text = if i == self.current {
+                format!(" {label} ")
+            } else {
+                label
+            };
+            spans.push(Span::styled(text, style));
+        }
+        Line::from(spans)
+    }
+}
+
+impl Widget for Stepper<'_> {
+    fn render(self, area: Rect, buf: &mut Buffer) {
+        let line = self.line();
+        Paragraph::new(line)
+            .style(Style::new().bg(self.theme.c.background))
+            .render(area, buf);
+    }
+}
+
+// ── Fuzzy matching ──────────────────────────────────────────────────────
+
+/// Which characters of `item` the query hit, if it hits at all.
+///
+/// A subsequence match, not a substring one: `dpl` finds "Deploy stack"
+/// where homelab's palette (`client/src/tui/model.rs:1135`,
+/// `label.to_lowercase().contains(&q)`) would find nothing. Case is
+/// ignored, and an empty query matches everything with no marks.
+pub fn fuzzy(query: &str, item: &str) -> Option<Vec<usize>> {
+    let hay: Vec<char> = item.chars().collect();
+    let mut hits = Vec::new();
+    let mut at = 0usize;
+    for q in query.chars().flat_map(|c| c.to_lowercase()) {
+        let found = hay[at..]
+            .iter()
+            .position(|c| c.to_lowercase().next() == Some(q))?;
+        hits.push(at + found);
+        at += found + 1;
+    }
+    Some(hits)
+}
+
+/// How good a hit is: earlier and more contiguous wins. Lower is better,
+/// so a caller sorts ascending and keeps the original order on a tie.
+pub fn fuzzy_score(hits: &[usize]) -> usize {
+    if hits.is_empty() {
+        return usize::MAX;
+    }
+    let gaps: usize = hits.windows(2).map(|w| w[1] - w[0] - 1).sum();
+    // The first hit's column counts once; every gap counts double, because
+    // a run of letters reads as the word and a scatter does not.
+    hits[0] + gaps * 2
+}
+
+/// One item's label with the characters the query hit lifted out of it.
+///
+/// The hits take the theme's primary ink, its title modifier and an
+/// underline. The underline is not decoration: on the row in hand the
+/// plate is often the primary colour itself, so the ink mark disappears
+/// there and the underline is what is left to read.
+pub fn fuzzy_spans(theme: &Theme, item: &str, hits: &[usize], base: Style) -> Vec<Span<'static>> {
+    let hit = base
+        .fg(theme.c.primary)
+        .add_modifier(theme.a.title_modifier | Modifier::UNDERLINED);
+    let mut spans = Vec::new();
+    let mut run = String::new();
+    let mut run_hit = false;
+    for (i, c) in item.chars().enumerate() {
+        let is_hit = hits.contains(&i);
+        if is_hit != run_hit && !run.is_empty() {
+            spans.push(Span::styled(
+                std::mem::take(&mut run),
+                if run_hit { hit } else { base },
+            ));
+        }
+        run_hit = is_hit;
+        run.push(c);
+    }
+    if !run.is_empty() {
+        spans.push(Span::styled(run, if run_hit { hit } else { base }));
+    }
+    spans
+}
+
+// ── The row a person is standing on ─────────────────────────────────────
+
+impl Theme {
+    /// A tone, resolved against this theme's palette. `Tone::None` has no
+    /// colour: a caller leaves that side of the style alone.
+    pub fn tone(&self, tone: Tone) -> Option<Color> {
+        let c = &self.c;
+        Some(match tone {
+            Tone::None => return None,
+            Tone::Background => c.background,
+            Tone::Card => c.card,
+            Tone::Muted => c.muted,
+            Tone::Line => c.border_strong,
+            Tone::Ink => c.foreground,
+            Tone::Primary => c.primary,
+            Tone::PrimaryInk => c.primary_foreground,
+            Tone::Secondary => c.secondary,
+            Tone::SecondaryInk => c.secondary_foreground,
+            Tone::Accent => c.accent,
+        })
+    }
+
+    /// The style of a selected row in this theme.
+    pub fn selected_style(&self) -> Style {
+        let s = self.a.selection;
+        let mut style = Style::new().add_modifier(s.modifier);
+        if let Some(bg) = self.tone(s.plate) {
+            style = style.bg(bg);
+        }
+        if let Some(fg) = self.tone(s.ink) {
+            style = style.fg(fg);
+        }
+        style
+    }
+}
+
+/// A list where one row is the one in hand.
+///
+/// homelab writes this four times — the stack list, the wizard's presets,
+/// the palette, the fleet table (`client/src/tui/view/stacks.rs:65` is one)
+/// — each time as a cyan-on-breathing-plate row with a `▶`. Here the plate,
+/// the ink, the marker and the weight are the register's, and the rows that
+/// are not selected keep the ground they are drawn on.
+pub struct SelectList<'a> {
+    theme: &'a Theme,
+    items: &'a [Line<'static>],
+    selected: usize,
+    /// The first row drawn, for a list longer than its box.
+    offset: usize,
+}
+
+impl<'a> SelectList<'a> {
+    pub fn new(theme: &'a Theme, items: &'a [Line<'static>], selected: usize) -> Self {
+        SelectList {
+            theme,
+            items,
+            selected,
+            offset: 0,
+        }
+    }
+
+    pub fn offset(mut self, offset: usize) -> Self {
+        self.offset = offset;
+        self
+    }
+
+    /// The marker column: the register's own glyph, padded to the same
+    /// width on every row so the labels line up whether selected or not.
+    fn marker(&self, selected: bool) -> Option<Span<'static>> {
+        let s = self.theme.a.selection;
+        if s.marker.is_empty() {
+            return None;
+        }
+        let width = s.marker.chars().count();
+        Some(if selected {
+            Span::styled(
+                s.marker.to_string(),
+                Style::new()
+                    .fg(self
+                        .theme
+                        .tone(s.marker_tone)
+                        .unwrap_or(self.theme.c.primary))
+                    .bg(self.theme.tone(s.plate).unwrap_or(self.theme.c.card)),
+            )
+        } else {
+            Span::raw(" ".repeat(width))
+        })
+    }
+
+    /// One row, as it is drawn. Public so a test can read a row without a
+    /// buffer, and so a caller can put a list inside something else.
+    pub fn row(&self, i: usize) -> Line<'static> {
+        let selected = i == self.selected;
+        let style = if selected {
+            self.theme.selected_style()
+        } else {
+            Style::new().fg(self.theme.c.card_foreground)
+        };
+        let mut spans = Vec::new();
+        if let Some(m) = self.marker(selected) {
+            spans.push(m);
+        }
+        for span in &self.items[i].spans {
+            // The row's own marks win over the item's, except the colour an
+            // item set for itself when the row is not the one in hand.
+            let mut s = style;
+            if let Some(fg) = span.style.fg.filter(|_| !selected) {
+                s = s.fg(fg);
+            }
+            spans.push(Span::styled(
+                span.content.to_string(),
+                s.add_modifier(span.style.add_modifier),
+            ));
+        }
+        if self.theme.a.selection.spaced && selected {
+            // deco spaces the letters of the row it is standing on.
+            spans = spans
+                .into_iter()
+                .map(|s| {
+                    let spaced: String =
+                        s.content.chars().flat_map(|c| [c, ' ']).collect::<String>();
+                    Span::styled(spaced, s.style)
+                })
+                .collect();
+        }
+        Line::from(spans)
+    }
+}
+
+impl Widget for SelectList<'_> {
+    fn render(self, area: Rect, buf: &mut Buffer) {
+        let rows: Vec<Line<'static>> = (self.offset..self.items.len())
+            .take(area.height as usize)
+            .map(|i| self.row(i))
+            .collect();
+        let plate = self.theme.c.card;
+        for (n, row) in rows.into_iter().enumerate() {
+            let y = area.y + n as u16;
+            // The selected row's plate runs the width of the list, not the
+            // width of its label.
+            let bg = if self.offset + n == self.selected {
+                self.theme
+                    .tone(self.theme.a.selection.plate)
+                    .unwrap_or(plate)
+            } else {
+                plate
+            };
+            Paragraph::new(row).style(Style::new().bg(bg)).render(
+                Rect {
+                    y,
+                    height: 1,
+                    ..area
+                },
+                buf,
+            );
+        }
+    }
+}
+
+// ── The command palette ─────────────────────────────────────────────────
+
+/// Everything a person can do, findable by typing three letters of it.
+///
+/// homelab has one (`client/src/tui/view/mod.rs:830`) and it is the piece
+/// that makes the rest discoverable — nothing has to be known by heart.
+/// Two things are different here: the match is a subsequence rather than a
+/// substring, and the letters that matched are lifted out in the theme's
+/// own primary ink.
+pub struct CommandPalette<'a> {
+    theme: &'a Theme,
+    query: &'a str,
+    items: &'a [&'a str],
+    selected: usize,
+    /// Width and height in cells.
+    size: (u16, u16),
+    blink: Option<u32>,
+}
+
+impl<'a> CommandPalette<'a> {
+    pub fn new(theme: &'a Theme, query: &'a str, items: &'a [&'a str], selected: usize) -> Self {
+        CommandPalette {
+            theme,
+            query,
+            items,
+            selected,
+            size: (46, 12),
+            blink: None,
+        }
+    }
+
+    pub fn size(mut self, size: (u16, u16)) -> Self {
+        self.size = size;
+        self
+    }
+
+    pub fn blink(mut self, elapsed_ms: u32) -> Self {
+        self.blink = Some(elapsed_ms);
+        self
+    }
+
+    /// The items that match, best first, each with the columns its letters
+    /// hit. An empty query keeps the caller's own order.
+    pub fn matches(&self) -> Vec<(usize, Vec<usize>)> {
+        let mut found: Vec<(usize, Vec<usize>)> = self
+            .items
+            .iter()
+            .enumerate()
+            .filter_map(|(i, item)| fuzzy(self.query, item).map(|hits| (i, hits)))
+            .collect();
+        if !self.query.is_empty() {
+            found.sort_by_key(|(i, hits)| (fuzzy_score(hits), *i));
+        }
+        found
+    }
+
+    /// Draws over whatever is on the screen. Returns the rect it took, so a
+    /// caller can tell where it landed.
+    pub fn render_over(self, screen: Rect, buf: &mut Buffer) -> Rect {
+        let th = self.theme;
+        let found = self.matches();
+        let popup = Popup::new(th, "Commands", self.size);
+        let area = popup.area(screen);
+        let inner = popup.render_over(screen, buf);
+        if inner.height == 0 {
+            return area;
+        }
+        // The query line, with the theme's own caret riding it.
+        let field = Rect { height: 1, ..inner };
+        let mut f = Field::new(th, "find", self.query).focused(true);
+        if let Some(ms) = self.blink {
+            f = f.blink(ms / 33);
+        }
+        f.render(field, buf);
+
+        let list = Rect {
+            y: inner.y + 1,
+            height: inner.height - 1,
+            ..inner
+        };
+        let base = Style::new().fg(th.c.popover_foreground);
+        let rows: Vec<Line<'static>> = found
+            .iter()
+            .map(|(i, hits)| Line::from(fuzzy_spans(th, self.items[*i], hits, base)))
+            .collect();
+        if rows.is_empty() {
+            Paragraph::new(Line::from(Span::styled(
+                "nothing matches",
+                Style::new().fg(th.c.muted_foreground),
+            )))
+            .render(list, buf);
+            return area;
+        }
+        let selected = self.selected.min(rows.len() - 1);
+        // Keep the row in hand inside the box.
+        let offset = selected.saturating_sub(list.height.saturating_sub(1) as usize);
+        SelectList::new(th, &rows, selected)
+            .offset(offset)
+            .render(list, buf);
+        area
+    }
 }

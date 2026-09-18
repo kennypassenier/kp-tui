@@ -19,11 +19,11 @@ pub mod logs;
 pub mod theme;
 pub mod widgets;
 
-pub use anatomy::{Alarm, Anatomy, ButtonFace, Fx, Reveal, Texture};
+pub use anatomy::{Alarm, Anatomy, ButtonFace, Fx, Reveal, Selection, Texture, Tone};
 pub use color::ColorDepth;
 pub use components::{
-    AlarmPanel, Field, KeyHints, LogPane, Meter, Popup, PopupKind, Surface, Ticker, source_colour,
-    spinner,
+    AlarmPanel, CommandPalette, Field, KeyHints, LogPane, Meter, Popup, PopupKind, SelectList,
+    Stepper, Surface, Ticker, fuzzy, fuzzy_score, fuzzy_spans, source_colour, spinner,
 };
 pub use effects::{Glitch, Spinner, Strike, Sweep};
 pub use kp_tui_palette::{KP_THEMES_VERSION, Palette, Rgb, Role, THEMES};

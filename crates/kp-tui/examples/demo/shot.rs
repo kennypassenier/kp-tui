@@ -7,6 +7,7 @@
 
 use std::io::{self, Write};
 
+use crossterm::event::{KeyCode, KeyEvent, KeyEventKind};
 use kp_tui::{ColorDepth, Theme, ThemeId, live::Sample};
 use ratatui::{Terminal, backend::TestBackend, style::Color};
 
@@ -39,7 +40,32 @@ fn fixture() -> Sample {
     }
 }
 
-pub fn print(app: &mut App, themes: &str, (w, h): (u16, u16), at: u32) -> io::Result<()> {
+/// `--keys pst` presses p, s, t before the frame is drawn, so a shot can
+/// show a screen that only exists after a key (the palette is one).
+fn press(app: &mut App, keys: &str) {
+    for c in keys.chars() {
+        let code = match c {
+            '↓' => KeyCode::Down,
+            '↑' => KeyCode::Up,
+            '⏎' => KeyCode::Enter,
+            c => KeyCode::Char(c),
+        };
+        app.key(KeyEvent {
+            code,
+            modifiers: crossterm::event::KeyModifiers::NONE,
+            kind: KeyEventKind::Press,
+            state: crossterm::event::KeyEventState::NONE,
+        });
+    }
+}
+
+pub fn print(
+    app: &mut App,
+    themes: &str,
+    (w, h): (u16, u16),
+    at: u32,
+    keys: &str,
+) -> io::Result<()> {
     let mut out = io::stdout().lock();
     app.dash.push_sample(0.0, fixture());
     app.dash.draw_ms = 0.42;
@@ -51,6 +77,7 @@ pub fn print(app: &mut App, themes: &str, (w, h): (u16, u16), at: u32) -> io::Re
         app.reveal_ms = 0;
         app.alarm_ms = 0;
         app.tick(at);
+        press(app, keys);
         let Ok(mut terminal) = Terminal::new(TestBackend::new(w, h));
         let Ok(_) = terminal.draw(|f| app.draw(f));
         let buf = terminal.backend().buffer().clone();

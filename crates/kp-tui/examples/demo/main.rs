@@ -1,6 +1,7 @@
 //! `kp-tui-demo [--screen dashboard|components|console|effects] [--theme NAME]
 //!  [--colors truecolor|256|16] [--reduced-motion] [--config PATH] [--fps N]
-//!  [--synthetic-logs] [--exit-after SECONDS] [--shot] [--at MS] [--size WxH]`
+//!  [--synthetic-logs] [--exit-after SECONDS] [--shot] [--at MS] [--size WxH]
+//!  [--keys CHARS]`
 //!
 //! `--exit-after` is for measuring: the demo quits by itself and prints its
 //! own CPU time, frame count and mean draw time to stderr.
@@ -80,7 +81,8 @@ fn main() -> io::Result<()> {
             .unwrap_or((118, 30));
         let at = arg("--at").and_then(|v| v.parse().ok()).unwrap_or(0);
         let themes = arg("--theme").unwrap_or_else(|| "cyberpunk,terminal".into());
-        return shot::print(&mut app, &themes, size, at);
+        let keys = arg("--keys").unwrap_or_default();
+        return shot::print(&mut app, &themes, size, at, &keys);
     }
     app.dash.fps = fps;
 

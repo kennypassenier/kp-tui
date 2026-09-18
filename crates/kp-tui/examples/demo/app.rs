@@ -19,7 +19,8 @@ use kp_tui::dashboard::{self, Dashboard};
 use kp_tui::fx::{self, Motion};
 use kp_tui::widgets::{Button, ButtonKind, ButtonState, Panel, RevealText, ThemedTabs};
 use kp_tui::{
-    AlarmPanel, Field, KeyHints, Meter, Popup, PopupKind, Surface, Texture, Theme, Ticker, spinner,
+    AlarmPanel, CommandPalette, Field, KeyHints, Meter, Popup, PopupKind, SelectList, Stepper,
+    Surface, Texture, Theme, Ticker, source_colour, spinner,
 };
 
 pub const TABS: [&str; 3] = ["Overview", "Deployments", "Settings"];
@@ -104,6 +105,15 @@ pub struct App {
     /// The ticker's segments, rebuilt from the live sample each tick, so
     /// the line that slides past is this machine and not a fixture.
     pub ticker: Vec<String>,
+    /// The command palette: open, what is typed in it, and which row is in
+    /// hand. `p` opens it, Esc closes it.
+    pub palette_open: bool,
+    pub palette_query: String,
+    pub palette_sel: usize,
+    /// Which stack is in hand in the console's list.
+    pub stack_sel: usize,
+    /// Which step of the wizard the breadcrumb shows.
+    pub step: usize,
     pub config_path: Option<PathBuf>,
     pub message: String,
     pub quit: bool,
@@ -154,6 +164,11 @@ impl App {
             charge_ms: None,
             alarm_ms: 0,
             ticker: Vec::new(),
+            palette_open: false,
+            palette_query: String::from("st"),
+            palette_sel: 0,
+            stack_sel: 1,
+            step: 2,
             config_path,
             message: String::new(),
             quit: false,
@@ -214,6 +229,24 @@ impl App {
         if key.kind != KeyEventKind::Press {
             return;
         }
+        if self.palette_open {
+            match key.code {
+                KeyCode::Esc => self.palette_open = false,
+                KeyCode::Char(c) => {
+                    self.palette_query.push(c);
+                    self.palette_sel = 0;
+                }
+                KeyCode::Backspace => {
+                    self.palette_query.pop();
+                    self.palette_sel = 0;
+                }
+                KeyCode::Down => self.palette_sel += 1,
+                KeyCode::Up => self.palette_sel = self.palette_sel.saturating_sub(1),
+                KeyCode::Enter => self.palette_open = false,
+                _ => {}
+            }
+            return;
+        }
         match key.code {
             KeyCode::Char('q') | KeyCode::Esc => self.quit = true,
             KeyCode::Char('t') => self.cycle_theme(),
@@ -221,6 +254,13 @@ impl App {
             KeyCode::Char('r') => self.reveal_ms = 0,
             // The alarm strikes once, so it needs a key to strike again.
             KeyCode::Char('a') => self.alarm_ms = 0,
+            KeyCode::Char('p') if self.screen == Screen::Console => {
+                self.palette_open = true;
+                self.palette_sel = 0;
+            }
+            KeyCode::Char('n') if self.screen == Screen::Console => {
+                self.step = (self.step + 1) % WIZARD.len();
+            }
             KeyCode::Char('s') => {
                 self.screen = match self.screen {
                     Screen::Dashboard => Screen::Components,
@@ -434,12 +474,15 @@ impl App {
         frame.render_widget(Block::new().style(th.base()), screen);
         let rows = Layout::vertical([
             Constraint::Length(1),
+            Constraint::Length(1),
             Constraint::Length(5),
             Constraint::Length(4),
             Constraint::Min(0),
             Constraint::Length(1),
         ])
-        .areas::<5>(screen);
+        .areas::<6>(screen);
+        let wizard_row = rows[1];
+        let rows = [rows[0], rows[2], rows[3], rows[4], rows[5]];
 
         frame.render_widget(
             Paragraph::new(Line::from(vec![
@@ -458,6 +501,8 @@ impl App {
             .style(Style::new().bg(th.c.background)),
             rows[0],
         );
+
+        frame.render_widget(Stepper::new(th, &WIZARD, self.step), wizard_row);
 
         // Three meters, one under each threshold and one over.
         let panel = Panel::new(th, "Capacity");
@@ -486,17 +531,46 @@ impl App {
             fields[1],
         );
 
-        // The help overlay, from the same keymap the footer draws.
+        // The stacks, one of them in hand, beside the help overlay that is
+        // drawn from the same keymap as the footer.
+        let [left, right] =
+            Layout::horizontal([Constraint::Percentage(48), Constraint::Percentage(52)])
+                .areas(rows[3]);
+        let panel = Panel::new(th, "Stacks").focused(true);
+        let inner = panel.block().inner(left);
+        frame.render_widget(panel, left);
+        let items: Vec<Line<'static>> = STACKS
+            .iter()
+            .map(|(name, note)| {
+                Line::from(vec![
+                    Span::styled(
+                        (*name).to_string(),
+                        Style::new().fg(source_colour(th, name)),
+                    ),
+                    Span::styled(format!("  {note}"), Style::new().fg(th.c.muted_foreground)),
+                ])
+            })
+            .collect();
+        frame.render_widget(SelectList::new(th, &items, self.stack_sel), inner);
+
         let hints = KeyHints::new(th, CONSOLE_KEYS);
         let panel = Panel::new(th, "Keys");
-        let inner = panel.block().inner(rows[3]);
-        frame.render_widget(panel, rows[3]);
+        let inner = panel.block().inner(right);
+        frame.render_widget(panel, right);
         frame.render_widget(
             Paragraph::new(hints.overlay()).style(Style::new().bg(th.c.card)),
             inner,
         );
 
         frame.render_widget(KeyHints::new(th, CONSOLE_KEYS), rows[4]);
+
+        if self.palette_open {
+            CommandPalette::new(th, &self.palette_query, &COMMANDS, self.palette_sel)
+                .size((46, 10))
+                .blink(self.reveal_ms)
+                .render_over(screen, frame.buffer_mut());
+            return;
+        }
 
         // And a dialog over all of it, as a restore would be.
         let popup = Popup::new(th, "Restore backup", (52, 7)).kind(PopupKind::Danger);
@@ -692,8 +766,34 @@ const EFFECT_KEYS: &[(&str, &str)] = &[
     ("q", "quit"),
 ];
 
+/// The five steps homelab's create-container wizard walks
+/// (`client/src/tui/view/mod.rs:242`).
+const WIZARD: [&str; 5] = ["Preset", "Name", "Resources", "Storage", "Review"];
+
+/// What the console's list holds, and what the palette can find.
+const STACKS: [(&str, &str); 5] = [
+    ("media", "8 containers"),
+    ("web", "3 containers"),
+    ("backup", "idle"),
+    ("monitoring", "2 containers"),
+    ("dns", "1 container"),
+];
+
+const COMMANDS: [&str; 8] = [
+    "Deploy stack",
+    "Restart stack",
+    "Roll back to 2.3",
+    "Open logs",
+    "Stop stack",
+    "Prune images",
+    "Restore backup",
+    "Switch theme",
+];
+
 /// One keymap: the footer and the overlay both read this.
 const CONSOLE_KEYS: &[(&str, &str)] = &[
+    ("p", "palette"),
+    ("n", "step"),
     ("s", "screen"),
     ("t", "theme"),
     ("m", "motion"),

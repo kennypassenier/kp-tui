@@ -67,3 +67,24 @@ cargo run --example demo -- --shot --colors truecolor --screen effects \
 `--shot` draws the screen headless and prints it as ANSI, through the same
 `App::draw` the running demo uses, so a picture of it cannot drift from
 what the demo shows.
+
+## The components beside them
+
+The effects are half of what makes a screen; the other half is the widgets
+that carry them. `docs/HOMELAB_INVENTORY.md` counted what homelab writes by
+hand, and all of it now lives here: `Popup`, `Field`, `Meter`, `KeyHints`,
+`LogPane`, `SelectList`, `Stepper` and `CommandPalette`.
+
+Two of those learned something on the way over:
+
+- **`SelectList`** takes the row in hand from the register rather than from
+  a constant. Measured on 2026-09-17: four registers plate it in
+  `--primary`, one in `--muted`, one in `--secondary`, two in `--accent`,
+  two drop it to `--background`, and nine leave the ground alone and speak
+  with a bar, a bracket, a dot or a weight instead. terminal is the only
+  one whose marker is a glyph — a literal `>` — and it is in the register.
+- **`CommandPalette`** matches a subsequence, not a substring, so `dpl`
+  finds "Deploy stack" where `label.to_lowercase().contains(&q)`
+  (`client/src/tui/model.rs:1135`) finds nothing. The letters that hit are
+  lifted in the theme's primary ink and underlined; the underline is what
+  survives on the row in hand, whose plate is often that same primary.

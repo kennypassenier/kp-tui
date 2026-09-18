@@ -94,6 +94,13 @@ severity and a source hue (3 + 3), **Meter** (2), **KeyHints** from one
 keymap that both the footer and the help overlay read (2), then Stepper,
 Palette and Ticker.
 
+**All of them are built, as of 2026-09-17.** The last three landed
+together: `SelectList` (the row in hand, painted the way each register
+paints `[aria-current]` — measured across the twenty-two), `Stepper` (the
+wizard's breadcrumb) and `CommandPalette`, which matches a subsequence
+rather than a substring and lifts the letters that hit — `dpl` finds
+"Deploy stack", which homelab's `label.contains(&q)` does not.
+
 And the part that makes it worth switching at all: the FX. homelab's are
 hand-tuned for one cyberpunk look; kp-themes already declares a reveal
 routine, a motion duration and a set of marks **per theme**, so kp-tui can
