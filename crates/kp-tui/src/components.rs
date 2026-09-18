@@ -87,7 +87,12 @@ impl<'a> Popup<'a> {
     /// Draw the overlay; returns the inner rect so the caller can fill it.
     pub fn render_over(self, screen: Rect, buf: &mut Buffer) -> Rect {
         let area = self.area(screen);
+        // Depth, before anything is drawn: the page behind a dialog steps
+        // back, and the dialog throws a shadow onto it. Both are one pass
+        // over the buffer and neither needs a colour of its own.
+        scrim(self.theme, screen, buf);
         Clear.render(area, buf);
+        shadow(self.theme, area, screen, buf);
         let t = &self.theme.c;
         // The ground under a popup is the theme's popover surface, not the
         // page: a dialog that sits on the same colour as the page behind it
@@ -1267,6 +1272,78 @@ impl<'a> CommandPalette<'a> {
             .offset(offset)
             .render(list, buf);
         area
+    }
+}
+
+/// The page behind an overlay, stepped back.
+///
+/// Every colour on it moves a third of the way to the theme's own
+/// background, ink included, so the layer underneath reads as further away
+/// rather than as switched off. A sixteen-colour terminal has no third of
+/// the way, so it keeps its colours.
+pub fn scrim(theme: &Theme, screen: Rect, buf: &mut Buffer) {
+    if theme.depth == ColorDepth::Ansi16 {
+        return;
+    }
+    let p = theme.id.palette();
+    let step = |c: Option<Color>, role: Role, towards: Rgb| match c {
+        Some(Color::Rgb(r, g, b)) => {
+            Some(theme.depth.resolve(role, mix(Rgb(r, g, b), towards, 0.35)))
+        }
+        other => other,
+    };
+    for y in screen.y..screen.bottom() {
+        for x in screen.x..screen.right() {
+            let cell = &mut buf[(x, y)];
+            let (fg, bg) = (cell.fg, cell.bg);
+            if let Some(c) = step(Some(fg), Role::Ink, p.background) {
+                cell.set_fg(c);
+            }
+            if let Some(c) = step(Some(bg), Role::Surface, p.background) {
+                cell.set_bg(c);
+            }
+        }
+    }
+}
+
+/// The shadow an overlay throws: one row under it and one column beside
+/// it, darkened rather than blacked out, and clipped to the screen.
+pub fn shadow(theme: &Theme, area: Rect, screen: Rect, buf: &mut Buffer) {
+    if theme.depth == ColorDepth::Ansi16 {
+        return;
+    }
+    let p = theme.id.palette();
+    // Towards the darker of the two grounds, so the shadow reads on a
+    // light theme as well as on a dark one.
+    let dark = if theme.id.dark() {
+        Rgb(0, 0, 0)
+    } else {
+        p.foreground
+    };
+    let dim = |x: u16, y: u16, buf: &mut Buffer| {
+        if x < screen.right() && y < screen.bottom() {
+            let cell = &mut buf[(x, y)];
+            if let Color::Rgb(r, g, b) = cell.bg {
+                cell.set_bg(
+                    theme
+                        .depth
+                        .resolve(Role::Surface, mix(Rgb(r, g, b), dark, 0.45)),
+                );
+            }
+            if let Color::Rgb(r, g, b) = cell.fg {
+                cell.set_fg(
+                    theme
+                        .depth
+                        .resolve(Role::Ink, mix(Rgb(r, g, b), dark, 0.45)),
+                );
+            }
+        }
+    };
+    for x in area.x + 1..area.right() + 1 {
+        dim(x, area.bottom(), buf);
+    }
+    for y in area.y + 1..area.bottom() + 1 {
+        dim(area.right(), y, buf);
     }
 }
 

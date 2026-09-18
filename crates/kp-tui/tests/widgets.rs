@@ -1250,3 +1250,48 @@ fn a_braille_chart_carries_four_levels_to_the_row() {
     assert_eq!(buf[(9, 0)].fg, rgb(ThemeId::CYBERPUNK.palette().warning));
     assert_eq!(buf[(0, 0)].fg, rgb(ThemeId::CYBERPUNK.palette().primary));
 }
+
+#[test]
+fn an_overlay_steps_the_page_back_and_throws_a_shadow() {
+    let th = Theme::new(ThemeId::CYBERPUNK, ColorDepth::TrueColor);
+    let p = ThemeId::CYBERPUNK.palette();
+    let paint = |buf: &mut Buffer| {
+        for y in 0..14 {
+            for x in 0..40 {
+                buf[(x, y)].set_symbol("x");
+                buf[(x, y)].set_style(
+                    ratatui::style::Style::new()
+                        .bg(rgb(p.card))
+                        .fg(rgb(p.foreground)),
+                );
+            }
+        }
+    };
+    let mut before = Buffer::empty(Rect::new(0, 0, 40, 14));
+    paint(&mut before);
+    let mut buf = Buffer::empty(Rect::new(0, 0, 40, 14));
+    paint(&mut buf);
+    let area = Popup::new(&th, "Restore", (20, 6)).render_over(buf.area, &mut buf);
+
+    // The page behind has stepped back: a cell well away from the dialog
+    // still carries its glyph, in a colour nearer the ground.
+    let far = (1u16, 1u16);
+    assert_eq!(buf[far].symbol(), "x");
+    assert_ne!(buf[far].bg, before[far].bg, "the page behind is dimmed");
+    assert_ne!(buf[far].fg, before[far].fg);
+
+    // The shadow falls one row under the dialog and one column beside it,
+    // darker than the page around it.
+    let under = (area.x + 2, area.bottom());
+    let beside = (area.right(), area.y + 2);
+    assert_ne!(buf[under].bg, buf[far].bg, "shadow under");
+    assert_ne!(buf[beside].bg, buf[far].bg, "shadow beside");
+
+    // Sixteen colours cannot mix a third of the way, so the page keeps its
+    // own colours there rather than taking a wrong one.
+    let low = Theme::new(ThemeId::CYBERPUNK, ColorDepth::Ansi16);
+    let mut small = Buffer::empty(Rect::new(0, 0, 40, 14));
+    paint(&mut small);
+    Popup::new(&low, "Restore", (20, 6)).render_over(small.area, &mut small);
+    assert_eq!(small[far].bg, before[far].bg);
+}

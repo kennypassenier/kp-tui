@@ -26,7 +26,7 @@ pub use color::ColorDepth;
 pub use components::{
     AlarmPanel, Badge, Column, CommandPalette, DataTable, Facts, Field, KeyHints, LogPane, Meter,
     Popup, PopupKind, SelectList, Spark, Stepper, Surface, Ticker, fuzzy, fuzzy_score, fuzzy_spans,
-    source_colour, spinner,
+    scrim, shadow, source_colour, spinner,
 };
 pub use effects::{Glitch, Spinner, Strike, Sweep};
 pub use kp_tui_palette::{KP_THEMES_VERSION, Palette, Rgb, Role, THEMES};

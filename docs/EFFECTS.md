@@ -88,3 +88,18 @@ Two of those learned something on the way over:
   (`client/src/tui/model.rs:1135`) finds nothing. The letters that hit are
   lifted in the theme's primary ink and underlined; the underline is what
   survives on the row in hand, whose plate is often that same primary.
+
+## Depth
+
+An overlay does two things to the page it covers, both one pass over the
+buffer and neither with a colour of its own:
+
+- **The scrim.** Every cell behind the overlay moves a third of the way to
+  the theme's own `--background`, ink included, so the layer underneath
+  reads as further away rather than as switched off.
+- **The shadow.** One row under the overlay and one column beside it,
+  darkened 45 % towards black in a dark theme and towards `--foreground` in
+  a light one, so the shadow reads on both.
+
+Sixteen-colour terminals get neither: a third of the way does not exist
+there, and a wrong colour is worse than a flat page.
