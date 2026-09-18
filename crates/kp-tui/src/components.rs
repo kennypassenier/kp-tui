@@ -280,7 +280,13 @@ impl Widget for Meter<'_> {
         // label … bar … reading, with the bar taking what is left.
         let text_w = label.chars().count() as u16 + reading.chars().count() as u16 + 2;
         let bar_w = area.width.saturating_sub(text_w);
-        let filled = ((bar_w as f32) * self.value).round() as u16;
+        // An eighth of a cell at a time: the bar lands on the value it was
+        // given instead of the nearest whole cell, which at forty cells is
+        // eight times the precision for nothing.
+        let exact = bar_w as f32 * self.value;
+        let filled = exact.floor() as u16;
+        let eighths = ((exact - filled as f32) * 8.0).round() as usize;
+        const PART: [&str; 9] = ["", "▏", "▎", "▍", "▌", "▋", "▊", "▉", "█"];
         let fill = self.colour();
         let mut spans = vec![Span::styled(
             format!("{label} "),
@@ -292,14 +298,19 @@ impl Widget for Meter<'_> {
             " ".repeat(filled as usize),
             Style::new().bg(fill),
         ));
-        spans.push(Span::styled(
-            " ".repeat(bar_w.saturating_sub(filled) as usize),
-            Style::new().bg(t.muted),
-        ));
+        let mut rest = bar_w.saturating_sub(filled) as usize;
+        if eighths > 0 && rest > 0 {
+            spans.push(Span::styled(
+                PART[eighths].to_string(),
+                Style::new().fg(fill).bg(t.muted),
+            ));
+            rest -= 1;
+        }
+        spans.push(Span::styled(" ".repeat(rest), Style::new().bg(t.muted)));
         spans.push(Span::styled(
             format!(" {reading}"),
             Style::new().fg(if self.value >= self.danger_at {
-                t.destructive
+                self.theme.ink(Tone::Danger, self.theme.id.palette().card)
             } else {
                 t.foreground
             }),

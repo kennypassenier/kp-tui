@@ -12,7 +12,7 @@
 //! four times the vertical resolution a block sparkline has.
 
 use kp_tui::{
-    Badge, Column, DataTable, Facts, SelectList, Spark, Theme, Tone,
+    Badge, Column, DataTable, Facts, Rail, SelectList, Spark, Stage, Theme, Tone,
     fx::{self, Motion},
     source_colour,
     widgets::Panel,
@@ -125,8 +125,11 @@ pub const FLEET: [Stack; 5] = [
 
 pub fn draw(frame: &mut Frame, th: &Theme, selected: usize, reveal_ms: u32, motion: Motion) {
     let screen = frame.area();
+    let stage = Stage::new(reveal_ms, motion);
+    let [rail, body] = Layout::vertical([Constraint::Length(1), Constraint::Min(0)]).areas(screen);
+    frame.render_widget(Rail::new(th).grown(stage.ground()), rail);
     let [left, right] =
-        Layout::horizontal([Constraint::Length(32), Constraint::Min(40)]).areas(screen);
+        Layout::horizontal([Constraint::Length(32), Constraint::Min(40)]).areas(body);
     draw_registry(frame, th, left, selected, reveal_ms, motion);
     draw_detail(
         frame,
@@ -148,6 +151,7 @@ fn draw_registry(
 ) {
     let panel = Panel::new(th, "Stack registry")
         .focused(true)
+        .stage(Stage::new(reveal_ms, motion))
         .reveal(reveal_ms, motion);
     let inner = panel.block().inner(area);
     frame.render_widget(panel, area);
@@ -194,7 +198,9 @@ fn draw_detail(
         Layout::vertical([Constraint::Length(5), Constraint::Min(5)]).areas(area);
 
     let title = format!("Manifest · {}", s.hostname);
-    let panel = Panel::new(th, &title).reveal(reveal_ms, motion);
+    let panel = Panel::new(th, &title)
+        .stage(Stage::new(reveal_ms, motion))
+        .reveal(reveal_ms, motion);
     let inner = panel.block().inner(manifest);
     frame.render_widget(panel, manifest);
 
@@ -257,7 +263,7 @@ fn draw_detail(
         .render(spark_area, frame.buffer_mut());
 
     let title = format!("App grid · {} units", s.apps.len());
-    let panel = Panel::new(th, &title);
+    let panel = Panel::new(th, &title).stage(Stage::new(reveal_ms, motion));
     let inner = panel.block().inner(grid);
     frame.render_widget(panel, grid);
 

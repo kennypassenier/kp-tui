@@ -344,3 +344,77 @@ mod tests {
         assert!(s.at(100, Motion::Reduced).is_none());
     }
 }
+
+/// A screen arriving, in the order the package declares.
+///
+/// `css/components.css` gives four beats — the ground in over 240 ms, the
+/// panels settling over 520 ms, the titles arriving over 480 ms, the detail
+/// over 300 ms — and the web has used them since the alarm was built. A
+/// terminal had none of it: panels were simply there. This is the same
+/// sequence as four clocks, so a caller asks "how far in is the panel
+/// beat" instead of keeping state.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Stage {
+    pub elapsed_ms: u32,
+    pub motion: Motion,
+}
+
+impl Stage {
+    pub const GROUND_MS: u32 = 240;
+    pub const PANEL_MS: u32 = 520;
+    pub const TITLE_MS: u32 = 480;
+    pub const DETAIL_MS: u32 = 300;
+
+    pub fn new(elapsed_ms: u32, motion: Motion) -> Self {
+        Stage { elapsed_ms, motion }
+    }
+
+    fn beat(&self, start: u32, length: u32) -> f32 {
+        if self.motion == Motion::Reduced {
+            return 1.0;
+        }
+        let t = (self.elapsed_ms.saturating_sub(start)) as f32 / length as f32;
+        // The same cubic ease-out `--fx-ease` approximates for a reveal.
+        1.0 - (1.0 - t.clamp(0.0, 1.0)).powi(3)
+    }
+
+    pub fn ground(&self) -> f32 {
+        self.beat(0, Self::GROUND_MS)
+    }
+
+    pub fn panel(&self) -> f32 {
+        self.beat(Self::GROUND_MS, Self::PANEL_MS)
+    }
+
+    pub fn title(&self) -> f32 {
+        self.beat(Self::GROUND_MS + Self::PANEL_MS, Self::TITLE_MS)
+    }
+
+    pub fn detail(&self) -> f32 {
+        self.beat(
+            Self::GROUND_MS + Self::PANEL_MS + Self::TITLE_MS,
+            Self::DETAIL_MS,
+        )
+    }
+
+    /// When the last beat has finished, a caller can stop asking.
+    pub fn done(&self) -> bool {
+        self.motion == Motion::Reduced
+            || self.elapsed_ms
+                >= Self::GROUND_MS + Self::PANEL_MS + Self::TITLE_MS + Self::DETAIL_MS
+    }
+}
+
+/// A number on its way to a new value: eased over `ms`, never jumping.
+///
+/// A figure that snaps reads as a different figure; one that travels reads
+/// as the same figure changing. No loop, so the flash reading DI5 takes
+/// stays at zero.
+pub fn roll(from: f64, to: f64, elapsed_ms: u32, ms: u32, motion: Motion) -> f64 {
+    if motion == Motion::Reduced || ms == 0 || elapsed_ms >= ms {
+        return to;
+    }
+    let t = elapsed_ms as f32 / ms as f32;
+    let eased = 1.0 - (1.0 - t).powi(3);
+    from + (to - from) * eased as f64
+}

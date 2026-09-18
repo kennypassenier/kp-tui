@@ -103,3 +103,32 @@ buffer and neither with a colour of its own:
 
 Sixteen-colour terminals get neither: a third of the way does not exist
 there, and a wrong colour is worse than a flat page.
+
+## The arrival, the rail, the corners and the roll
+
+Four more, all measured from the registers rather than invented:
+
+- **`Stage`** — the four beats `css/components.css` has declared since the
+  alarm was built: the ground in over 240 ms, the panels settling over
+  520 ms, the titles over 480 ms, the detail over 300 ms. `Panel::stage`
+  brings a frame and its plate up out of `--background` on the panel beat
+  and its title on the title beat, so a screen arrives instead of being
+  there.
+- **`Rail`** — one row across the top. Three registers paint a gradient
+  onto a rule rather than a colour (`border-image`: synthwave eight times,
+  terminal and retro three each) and those three ramp from `--primary` to
+  `--accent`, cell by cell — 104 distinct colours across a 104-cell row.
+  The other nineteen draw the plain rule they draw everywhere else.
+- **HUD corners** — `⌜⌝⌞⌟` in `--ring` on the panel with the focus, and
+  only for the eight registers that cut their corners in earnest
+  (`clip-path` five times or more: cyberpunk 42, phantom 13, dark 12,
+  retro 8, titanium 6, lapis 6, solstice 5, light 5). Six registers never
+  cut a corner, and they never grow one here.
+- **`roll`** — a number eased to its new reading over the theme's own
+  `--fx-duration` instead of snapping to it. It is monotonic, it lands
+  exactly on the target, and it is not a loop, so the flash reading stays
+  at zero.
+
+And the block sparklines on the dashboard are braille now, at two samples
+to a column and four levels to a row; the percentage bar fills in eighths
+of a cell rather than whole ones.

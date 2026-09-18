@@ -11,6 +11,7 @@ use ratatui::{
 
 use crate::anatomy::{ButtonFace, Reveal};
 use crate::color::{ColorDepth, Rgb, Role};
+use crate::effects::Stage;
 use crate::effects::mix;
 use crate::fx::{self, Motion};
 use crate::theme::Theme;
@@ -26,6 +27,8 @@ pub struct Panel<'a> {
     reveal: Option<(u32, Motion)>,
     /// A right-aligned note in the top border (the log pane's state).
     status: Option<Line<'static>>,
+    /// The arrival beats, for a panel that is still coming in.
+    stage: Option<Stage>,
 }
 
 impl<'a> Panel<'a> {
@@ -36,7 +39,15 @@ impl<'a> Panel<'a> {
             focused: false,
             reveal: None,
             status: None,
+            stage: None,
         }
+    }
+
+    /// Arrive with the screen: the frame and the plate come up out of the
+    /// ground over the panel beat, the title over the title beat.
+    pub fn stage(mut self, stage: Stage) -> Self {
+        self.stage = Some(stage);
+        self
     }
 
     pub fn reveal(mut self, elapsed_ms: u32, motion: Motion) -> Self {
@@ -57,17 +68,32 @@ impl<'a> Panel<'a> {
     /// The block, for wrapping other content the way `Block` is used.
     pub fn block(&self) -> Block<'static> {
         let (t, a) = (&self.theme.c, self.theme.a);
-        let (set, line) = if self.focused {
-            (a.border_focus, t.ring)
-        } else {
-            (a.border, t.border_strong)
+        let p = self.theme.id.palette();
+        let arrived = self.stage.map(|s| s.panel()).unwrap_or(1.0);
+        let coming = |role: Role, c: Rgb| {
+            self.theme
+                .depth
+                .resolve(role, mix(p.background, c, arrived))
         };
+        let (set, line) = if self.focused {
+            (a.border_focus, coming(Role::Line, p.ring))
+        } else {
+            (a.border, coming(Role::Line, p.border_strong))
+        };
+        let titled = self.stage.map(|s| s.title()).unwrap_or(1.0);
         let title_style = Style::new()
-            .fg(if self.focused {
-                t.foreground
-            } else {
-                t.muted_foreground
-            })
+            .fg(self.theme.depth.resolve(
+                Role::Ink,
+                mix(
+                    p.card,
+                    if self.focused {
+                        p.foreground
+                    } else {
+                        p.muted_foreground
+                    },
+                    titled,
+                ),
+            ))
             .add_modifier(a.title_modifier);
         let label = self.theme.label(self.title);
         let title = match self.reveal {
@@ -97,7 +123,11 @@ impl<'a> Panel<'a> {
             .border_set(set)
             .border_style(Style::new().fg(line))
             .title(title)
-            .style(Style::new().bg(t.card).fg(t.card_foreground));
+            .style(
+                Style::new()
+                    .bg(coming(Role::Surface, p.card))
+                    .fg(t.card_foreground),
+            );
         if let Some(status) = &self.status {
             block = block.title_top(status.clone().right_aligned());
         }
@@ -107,7 +137,23 @@ impl<'a> Panel<'a> {
 
 impl Widget for Panel<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
+        let hud = self.focused && self.theme.a.hud && area.width > 2 && area.height > 2;
+        let ring = self.theme.c.ring;
         self.block().render(area, buf);
+        if hud {
+            // The corner marks a HUD wears, in the ring colour, and only
+            // for the registers that cut their corners on the page.
+            for (x, y, glyph) in [
+                (area.x, area.y, "⌜"),
+                (area.right() - 1, area.y, "⌝"),
+                (area.x, area.bottom() - 1, "⌞"),
+                (area.right() - 1, area.bottom() - 1, "⌟"),
+            ] {
+                let cell = &mut buf[(x, y)];
+                cell.set_symbol(glyph);
+                cell.set_fg(ring);
+            }
+        }
     }
 }
 
@@ -491,5 +537,65 @@ impl Widget for RevealText<'_> {
             spans.push(Span::styled(" ", Style::new().bg(th.c.foreground)));
         }
         Paragraph::new(Line::from(spans)).render(area, buf);
+    }
+}
+
+// ── The rail ────────────────────────────────────────────────────────────
+
+/// One row across the top of a screen.
+///
+/// Three registers paint a gradient onto a rule rather than a colour —
+/// synthwave eight times, terminal and retro three each (`border-image`
+/// with `--kp-stripe`). Those three get a ramp from `--primary` to
+/// `--accent`, cell by cell; the other nineteen get the plain rule they
+/// draw everywhere else.
+pub struct Rail<'a> {
+    theme: &'a Theme,
+    /// 0.0 draws nothing, 1.0 the whole width — the ground beat of an
+    /// arriving screen runs it out from the left.
+    grown: f32,
+}
+
+impl<'a> Rail<'a> {
+    pub fn new(theme: &'a Theme) -> Self {
+        Rail { theme, grown: 1.0 }
+    }
+
+    pub fn grown(mut self, grown: f32) -> Self {
+        self.grown = grown.clamp(0.0, 1.0);
+        self
+    }
+}
+
+impl Widget for Rail<'_> {
+    fn render(self, area: Rect, buf: &mut Buffer) {
+        if area.is_empty() {
+            return;
+        }
+        let th = self.theme;
+        let p = th.id.palette();
+        let (glyph, gradient) = match th.a.rail {
+            crate::anatomy::Rule::Gradient => ("━", true),
+            crate::anatomy::Rule::Heavy => ("━", false),
+            crate::anatomy::Rule::Double => ("═", false),
+            crate::anatomy::Rule::Thin => ("─", false),
+        };
+        let lit = (area.width as f32 * self.grown).round() as u16;
+        for x in 0..area.width {
+            let cell = &mut buf[(area.x + x, area.y)];
+            if x >= lit {
+                cell.set_symbol(" ");
+                cell.set_style(Style::new().bg(th.c.background));
+                continue;
+            }
+            let colour = if gradient {
+                let t = x as f32 / (area.width.max(2) - 1) as f32;
+                th.depth.resolve(Role::Line, mix(p.primary, p.accent, t))
+            } else {
+                th.c.border_strong
+            };
+            cell.set_symbol(glyph);
+            cell.set_style(Style::new().fg(colour).bg(th.c.background));
+        }
     }
 }

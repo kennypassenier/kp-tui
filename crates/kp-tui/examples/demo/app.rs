@@ -19,8 +19,8 @@ use kp_tui::dashboard::{self, Dashboard};
 use kp_tui::fx::{self, Motion};
 use kp_tui::widgets::{Button, ButtonKind, ButtonState, Panel, RevealText, ThemedTabs};
 use kp_tui::{
-    AlarmPanel, CommandPalette, Field, KeyHints, Meter, Popup, PopupKind, SelectList, Stepper,
-    Surface, Texture, Theme, Ticker, source_colour, spinner,
+    AlarmPanel, CommandPalette, Field, KeyHints, Meter, Popup, PopupKind, Rail, SelectList, Stage,
+    Stepper, Surface, Texture, Theme, Ticker, roll, source_colour, spinner,
 };
 
 pub const TABS: [&str; 3] = ["Overview", "Deployments", "Settings"];
@@ -492,8 +492,10 @@ impl App {
     fn draw_console(&self, frame: &mut Frame) {
         let th = &self.theme;
         let screen = frame.area();
+        let stage = Stage::new(self.reveal_ms, self.config.motion);
         frame.render_widget(Block::new().style(th.base()), screen);
         let rows = Layout::vertical([
+            Constraint::Length(1),
             Constraint::Length(1),
             Constraint::Length(1),
             Constraint::Length(5),
@@ -501,9 +503,10 @@ impl App {
             Constraint::Min(0),
             Constraint::Length(1),
         ])
-        .areas::<6>(screen);
-        let wizard_row = rows[1];
-        let rows = [rows[0], rows[2], rows[3], rows[4], rows[5]];
+        .areas::<7>(screen);
+        let rail_row = rows[1];
+        let wizard_row = rows[2];
+        let rows = [rows[0], rows[3], rows[4], rows[5], rows[6]];
 
         frame.render_widget(
             Paragraph::new(Line::from(vec![
@@ -523,10 +526,13 @@ impl App {
             rows[0],
         );
 
+        // The rail runs out of the left over the ground beat.
+        frame.render_widget(Rail::new(th).grown(stage.ground()), rail_row);
         frame.render_widget(Stepper::new(th, &WIZARD, self.step), wizard_row);
 
-        // Three meters, one under each threshold and one over.
-        let panel = Panel::new(th, "Capacity");
+        // Three meters, one under each threshold and one over. The values
+        // roll to their reading rather than snapping to it.
+        let panel = Panel::new(th, "Capacity").stage(stage);
         let inner = panel.block().inner(rows[1]);
         frame.render_widget(panel, rows[1]);
         let meters = Layout::vertical([Constraint::Length(1); 3]).areas::<3>(inner);
@@ -535,12 +541,19 @@ impl App {
                 .iter()
                 .zip([("ram", 0.42_f32), ("ssd", 0.78), ("load", 0.94)])
         {
-            frame.render_widget(Meter::new(th, label, value), *area);
+            let shown = roll(
+                0.0,
+                value as f64,
+                self.reveal_ms,
+                th.id.fx_duration_ms(),
+                self.config.motion,
+            ) as f32;
+            frame.render_widget(Meter::new(th, label, shown), *area);
         }
 
         // Two fields; the second has the caret, blinking on the theme's own
         // clock where the theme blinks.
-        let panel = Panel::new(th, "Filter").focused(true);
+        let panel = Panel::new(th, "Filter").focused(true).stage(stage);
         let inner = panel.block().inner(rows[2]);
         frame.render_widget(panel, rows[2]);
         let fields = Layout::vertical([Constraint::Length(1); 2]).areas::<2>(inner);
@@ -557,7 +570,7 @@ impl App {
         let [left, right] =
             Layout::horizontal([Constraint::Percentage(48), Constraint::Percentage(52)])
                 .areas(rows[3]);
-        let panel = Panel::new(th, "Stacks").focused(true);
+        let panel = Panel::new(th, "Stacks").focused(true).stage(stage);
         let inner = panel.block().inner(left);
         frame.render_widget(panel, left);
         let items: Vec<Line<'static>> = STACKS
@@ -575,7 +588,7 @@ impl App {
         frame.render_widget(SelectList::new(th, &items, self.stack_sel), inner);
 
         let hints = KeyHints::new(th, CONSOLE_KEYS);
-        let panel = Panel::new(th, "Keys");
+        let panel = Panel::new(th, "Keys").stage(stage);
         let inner = panel.block().inner(right);
         frame.render_widget(panel, right);
         frame.render_widget(

@@ -16,12 +16,12 @@ use ratatui::{
     text::{Line, Span},
     widgets::{
         Axis, Bar, BarChart, BarGroup, Block, Chart, Dataset, GraphType, LegendPosition, Paragraph,
-        Sparkline,
     },
 };
 
 use crate::anatomy::Tone;
 use crate::color::{ColorDepth, Role};
+use crate::components::Spark;
 use crate::effects::mix;
 use crate::fx::Motion;
 use crate::live::Sample;
@@ -622,26 +622,24 @@ fn draw_memdisk(frame: &mut Frame, d: &Dashboard, v: &View, area: Rect) {
             disk_line,
         );
     }
-    let mem = take(mem_spark.width, &|s| (s.mem_used_pct * 10.0) as u64);
+    // Braille rather than block bars: two samples to a column and four
+    // levels to a row, so the same strip carries four times the detail.
+    let mem: Vec<f64> = take(mem_spark.width * 2, &|s| (s.mem_used_pct * 10.0) as u64)
+        .into_iter()
+        .map(|v| v as f64)
+        .collect();
     frame.render_widget(
-        Sparkline::default()
-            .data(&mem)
-            .max(1000)
-            .style(Style::new().fg(c.chart_2).bg(c.card)),
+        Spark::new(th, &mem).max(1000.0).tone(Tone::Primary),
         mem_spark,
     );
     let [r, w] = Layout::horizontal([Constraint::Percentage(50); 2])
         .spacing(1)
         .areas(disk_spark);
-    let reads = take(r.width, &|s| s.disk_read_bps as u64);
-    let writes = take(w.width, &|s| s.disk_write_bps as u64);
+    let reads = take(r.width * 2, &|s| s.disk_read_bps as u64);
+    let writes = take(w.width * 2, &|s| s.disk_write_bps as u64);
     for (data, rect) in [(reads, r), (writes, w)] {
-        frame.render_widget(
-            Sparkline::default()
-                .data(&data)
-                .style(Style::new().fg(c.chart_5).bg(c.card)),
-            rect,
-        );
+        let data: Vec<f64> = data.into_iter().map(|v| v as f64).collect();
+        frame.render_widget(Spark::new(th, &data), rect);
     }
 }
 

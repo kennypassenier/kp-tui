@@ -15,7 +15,7 @@ use kp_tui::{
     fx::{self, Motion},
     live, logs,
     logs::{LogBuffer, Severity},
-    source_colour, spinner,
+    roll, source_colour, spinner,
     widgets::{Button, ButtonState},
 };
 use ratatui::{buffer::Buffer, layout::Rect, style::Color, text::Line, widgets::Widget};
@@ -1340,5 +1340,125 @@ fn every_state_ink_can_be_read_where_it_is_painted() {
                 id.name()
             );
         }
+    }
+}
+
+#[test]
+fn a_screen_arrives_in_the_order_the_package_declares() {
+    use kp_tui::Stage;
+    let th = Theme::new(ThemeId::CYBERPUNK, ColorDepth::TrueColor);
+    let beats = |ms| {
+        let s = Stage::new(ms, Motion::Full);
+        (s.ground(), s.panel(), s.title(), s.detail())
+    };
+    // 240 ground, 520 panel, 480 title, 300 detail: each beat is still at
+    // zero while the one before it runs.
+    assert_eq!(beats(0), (0.0, 0.0, 0.0, 0.0));
+    let (g, p, t, d) = beats(200);
+    assert!(
+        g > 0.5 && p == 0.0 && t == 0.0 && d == 0.0,
+        "{g} {p} {t} {d}"
+    );
+    let (_, p, t, _) = beats(500);
+    assert!(p > 0.0 && t == 0.0);
+    let (_, _, t, d) = beats(1000);
+    assert!(t > 0.0 && d == 0.0);
+    assert_eq!(beats(1540), (1.0, 1.0, 1.0, 1.0));
+    assert!(Stage::new(1540, Motion::Full).done());
+    // Reduced motion is the finished screen on the first frame.
+    let r = Stage::new(0, Motion::Reduced);
+    assert_eq!(
+        (r.ground(), r.panel(), r.title(), r.detail()),
+        (1.0, 1.0, 1.0, 1.0)
+    );
+    assert!(r.done());
+
+    // A panel drawn mid-arrival differs from the settled one, and matches
+    // it once the beat is over.
+    let draw = |ms| {
+        let mut buf = Buffer::empty(Rect::new(0, 0, 20, 5));
+        kp_tui::widgets::Panel::new(&th, "Capacity")
+            .stage(Stage::new(ms, Motion::Full))
+            .render(buf.area, &mut buf);
+        buf
+    };
+    assert_ne!(draw(300), draw(1540));
+    assert_eq!(draw(1540), draw(5000));
+}
+
+#[test]
+fn a_rail_ramps_only_where_a_register_paints_a_gradient_on_a_rule() {
+    use kp_tui::Rail;
+    // Measured 2026-09-18: synthwave uses `border-image` eight times,
+    // terminal and retro three each, and no other register uses it at all.
+    let gradient: Vec<&str> = ThemeId::ALL
+        .iter()
+        .filter(|id| id.anatomy().rail == kp_tui::Rule::Gradient)
+        .map(|id| id.name())
+        .collect();
+    assert_eq!(gradient, vec!["synthwave", "terminal", "retro"]);
+
+    for id in ThemeId::ALL {
+        let th = Theme::new(id, ColorDepth::TrueColor);
+        let mut buf = Buffer::empty(Rect::new(0, 0, 30, 1));
+        Rail::new(&th).render(buf.area, &mut buf);
+        let ends_differ = buf[(0, 0)].fg != buf[(29, 0)].fg;
+        assert_eq!(
+            ends_differ,
+            th.a.rail == kp_tui::Rule::Gradient,
+            "{}",
+            id.name()
+        );
+        // Half grown is half drawn.
+        let mut half = Buffer::empty(Rect::new(0, 0, 30, 1));
+        Rail::new(&th).grown(0.5).render(half.area, &mut half);
+        assert_ne!(half[(29, 0)].symbol(), half[(0, 0)].symbol());
+    }
+}
+
+#[test]
+fn a_number_rolls_to_its_new_reading() {
+    // The value travels, and lands exactly on its target.
+    assert_eq!(roll(0.0, 100.0, 0, 400, Motion::Full), 0.0);
+    let half = roll(0.0, 100.0, 200, 400, Motion::Full);
+    assert!(half > 50.0 && half < 100.0, "{half}");
+    assert_eq!(roll(0.0, 100.0, 400, 400, Motion::Full), 100.0);
+    assert_eq!(roll(0.0, 100.0, 900, 400, Motion::Full), 100.0);
+    // Reduced motion is there on the first frame.
+    assert_eq!(roll(0.0, 100.0, 0, 400, Motion::Reduced), 100.0);
+    // And it is monotonic, so a reading never goes backwards on its way.
+    let mut last = -1.0;
+    for ms in (0..400).step_by(10) {
+        let v = roll(0.0, 100.0, ms, 400, Motion::Full);
+        assert!(v >= last, "{v} after {last}");
+        last = v;
+    }
+}
+
+#[test]
+fn only_the_registers_that_cut_corners_wear_them() {
+    // `clip-path` five times or more in the register: cyberpunk (42),
+    // phantom (13), dark (12), retro (8), titanium (6), lapis (6),
+    // solstice (5) and light (5). Six registers use it never.
+    let hud: Vec<&str> = ThemeId::ALL
+        .iter()
+        .filter(|id| id.anatomy().hud)
+        .map(|id| id.name())
+        .collect();
+    assert_eq!(hud.len(), 8, "{hud:?}");
+    assert!(hud.contains(&"cyberpunk") && !hud.contains(&"formal"));
+
+    for id in ThemeId::ALL {
+        let th = Theme::new(id, ColorDepth::TrueColor);
+        let mut buf = Buffer::empty(Rect::new(0, 0, 14, 4));
+        kp_tui::widgets::Panel::new(&th, "Fleet")
+            .focused(true)
+            .render(buf.area, &mut buf);
+        let corner = buf[(0, 0)].symbol().to_string();
+        assert_eq!(corner == "⌜", th.a.hud, "{}: {corner:?}", id.name());
+        // An unfocused panel never wears them.
+        let mut rest = Buffer::empty(Rect::new(0, 0, 14, 4));
+        kp_tui::widgets::Panel::new(&th, "Fleet").render(rest.area, &mut rest);
+        assert_ne!(rest[(0, 0)].symbol(), "⌜", "{}", id.name());
     }
 }

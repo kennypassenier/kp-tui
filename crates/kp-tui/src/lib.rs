@@ -28,9 +28,10 @@ pub use components::{
     Popup, PopupKind, SelectList, Spark, Stepper, Surface, Ticker, fuzzy, fuzzy_score, fuzzy_spans,
     scrim, shadow, source_colour, spinner,
 };
-pub use effects::{Glitch, Spinner, Strike, Sweep};
+pub use effects::{Glitch, Spinner, Stage, Strike, Sweep, roll};
 pub use kp_tui_palette::{KP_THEMES_VERSION, Palette, Rgb, Role, THEMES};
 pub use theme::Theme;
+pub use widgets::Rail;
 
 /// One of the package's themes, by its place in `themes/order.json`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

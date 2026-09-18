@@ -250,6 +250,14 @@ pub struct Anatomy {
     pub selection: Selection,
     /// How this register dresses a table's header.
     pub table: TableHead,
+    /// The rule across the top of a screen. Gradient only where the
+    /// register paints a gradient onto a rule (`border-image`): synthwave
+    /// eight times, terminal and retro three each, and nowhere else.
+    pub rail: Rule,
+    /// Corner marks on the panel with the focus. Only for the registers
+    /// that cut their corners in earnest — `clip-path` five times or more
+    /// — so a theme that never cuts a corner does not grow one here.
+    pub hud: bool,
     /// What moves: the texture, the alarm, the spinner.
     pub fx: Fx,
 }
@@ -328,6 +336,9 @@ pub const FORMAL: Anatomy = Anatomy {
     // formal-register.css restates the base: muted ink, weight 600, a 1px
     // --border-strong rule.
     table: BASE_HEAD,
+    // rail: a plain rule; this register paints no gradient onto one. hud: clip-path 0 times.
+    rail: Rule::Thin,
+    hud: false,
 };
 
 /// cyberpunk. Signal yellow on a void; square or notched; a machine voice.
@@ -400,6 +411,9 @@ pub const CYBERPUNK: Anatomy = Anatomy {
         rule_tone: Tone::Primary,
         ..BASE_HEAD
     },
+    // rail: a plain rule; this register paints no gradient onto one. hud: clip-path 42 times.
+    rail: Rule::Thin,
+    hud: true,
 };
 
 /// terminal. A phosphor CRT that accepts a terminal's constraints.
@@ -458,6 +472,9 @@ pub const TERMINAL: Anatomy = Anatomy {
         modifier: Modifier::empty(),
         ..BASE_HEAD
     },
+    // rail: a gradient on a rule, as this register paints one. hud: clip-path 0 times.
+    rail: Rule::Gradient,
+    hud: false,
 };
 
 /// light. Proposed in research/ratatui/ANATOMY_PROPOSAL.md, which cites the
@@ -496,6 +513,9 @@ pub const LIGHT: Anatomy = Anatomy {
         ink: Tone::Ink,
         ..BASE_HEAD
     },
+    // rail: a plain rule; this register paints no gradient onto one. hud: clip-path 5 times.
+    rail: Rule::Thin,
+    hud: true,
 };
 
 /// dark. Proposed in research/ratatui/ANATOMY_PROPOSAL.md, which cites the
@@ -530,6 +550,9 @@ pub const DARK: Anatomy = Anatomy {
     // dark-register.css keeps the base header and only adds a --card hover
     // plate, which is the selected row here.
     table: BASE_HEAD,
+    // rail: a plain rule; this register paints no gradient onto one. hud: clip-path 12 times.
+    rail: Rule::Thin,
+    hud: true,
 };
 
 /// synthwave. Proposed in research/ratatui/ANATOMY_PROPOSAL.md, which cites the
@@ -576,6 +599,9 @@ pub const SYNTHWAVE: Anatomy = Anatomy {
         rule: Rule::Gradient,
         ..BASE_HEAD
     },
+    // rail: a gradient on a rule, as this register paints one. hud: clip-path 4 times.
+    rail: Rule::Gradient,
+    hud: false,
 };
 
 /// pastel. Proposed in research/ratatui/ANATOMY_PROPOSAL.md, which cites the
@@ -610,6 +636,9 @@ pub const PASTEL: Anatomy = Anatomy {
         ink: Tone::Ink,
         ..BASE_HEAD
     },
+    // rail: a plain rule; this register paints no gradient onto one. hud: clip-path 2 times.
+    rail: Rule::Thin,
+    hud: false,
 };
 
 /// forest. Proposed in research/ratatui/ANATOMY_PROPOSAL.md, which cites the
@@ -651,6 +680,9 @@ pub const FOREST: Anatomy = Anatomy {
         rule_tone: Tone::Ink,
         ..BASE_HEAD
     },
+    // rail: a plain rule; this register paints no gradient onto one. hud: clip-path 2 times.
+    rail: Rule::Thin,
+    hud: false,
 };
 
 /// high-contrast. Proposed in research/ratatui/ANATOMY_PROPOSAL.md, which cites the
@@ -693,6 +725,9 @@ pub const HIGH_CONTRAST: Anatomy = Anatomy {
         rule: Rule::Heavy,
         ..BASE_HEAD
     },
+    // rail: a plain rule; this register paints no gradient onto one. hud: clip-path 4 times.
+    rail: Rule::Thin,
+    hud: false,
 };
 
 /// sepia. Proposed in research/ratatui/ANATOMY_PROPOSAL.md, which cites the
@@ -734,6 +769,9 @@ pub const SEPIA: Anatomy = Anatomy {
         ink: Tone::Ink,
         ..BASE_HEAD
     },
+    // rail: a plain rule; this register paints no gradient onto one. hud: clip-path 0 times.
+    rail: Rule::Thin,
+    hud: false,
 };
 
 /// blueprint. Proposed in research/ratatui/ANATOMY_PROPOSAL.md, which cites the
@@ -776,6 +814,9 @@ pub const BLUEPRINT: Anatomy = Anatomy {
         ink: Tone::Ink,
         ..BASE_HEAD
     },
+    // rail: a plain rule; this register paints no gradient onto one. hud: clip-path 1 times.
+    rail: Rule::Thin,
+    hud: false,
 };
 
 /// solstice. Proposed in research/ratatui/ANATOMY_PROPOSAL.md, which cites the
@@ -814,6 +855,9 @@ pub const SOLSTICE: Anatomy = Anatomy {
     },
     // solstice-register.css leaves the base alone, hover included.
     table: BASE_HEAD,
+    // rail: a plain rule; this register paints no gradient onto one. hud: clip-path 5 times.
+    rail: Rule::Thin,
+    hud: true,
 };
 
 /// brutalism. Proposed in research/ratatui/ANATOMY_PROPOSAL.md, which cites the
@@ -857,6 +901,9 @@ pub const BRUTALISM: Anatomy = Anatomy {
         rule: Rule::Double,
         ..BASE_HEAD
     },
+    // rail: a plain rule; this register paints no gradient onto one. hud: clip-path 0 times.
+    rail: Rule::Thin,
+    hud: false,
 };
 
 /// deco. Proposed in research/ratatui/ANATOMY_PROPOSAL.md, which cites the
@@ -899,6 +946,9 @@ pub const DECO: Anatomy = Anatomy {
         modifier: Modifier::empty(),
         ..BASE_HEAD
     },
+    // rail: a plain rule; this register paints no gradient onto one. hud: clip-path 1 times.
+    rail: Rule::Thin,
+    hud: false,
 };
 
 /// phantom. Proposed in research/ratatui/ANATOMY_PROPOSAL.md, which cites the
@@ -942,6 +992,9 @@ pub const PHANTOM: Anatomy = Anatomy {
         rule_tone: Tone::Ink,
         ..BASE_HEAD
     },
+    // rail: a plain rule; this register paints no gradient onto one. hud: clip-path 13 times.
+    rail: Rule::Thin,
+    hud: true,
 };
 
 /// shade-light. Proposed in research/ratatui/ANATOMY_PROPOSAL.md, which cites the
@@ -981,6 +1034,9 @@ pub const SHADE_LIGHT: Anatomy = Anatomy {
         ink: Tone::Ink,
         ..BASE_HEAD
     },
+    // rail: a plain rule; this register paints no gradient onto one. hud: clip-path 3 times.
+    rail: Rule::Thin,
+    hud: false,
 };
 
 /// shade-dark. Proposed in research/ratatui/ANATOMY_PROPOSAL.md, which cites the
@@ -1017,6 +1073,9 @@ pub const SHADE_DARK: Anatomy = Anatomy {
     // shade-dark-register.css keeps the base and adds a square inset focus
     // ring on a cell.
     table: BASE_HEAD,
+    // rail: a plain rule; this register paints no gradient onto one. hud: clip-path 0 times.
+    rail: Rule::Thin,
+    hud: false,
 };
 
 /// retro. Proposed in research/ratatui/ANATOMY_PROPOSAL.md, which cites the
@@ -1055,6 +1114,9 @@ pub const RETRO: Anatomy = Anatomy {
         ink: Tone::Ink,
         ..BASE_HEAD
     },
+    // rail: a gradient on a rule, as this register paints one. hud: clip-path 8 times.
+    rail: Rule::Gradient,
+    hud: true,
 };
 
 /// grotesk. Proposed in research/ratatui/ANATOMY_PROPOSAL.md, which cites the
@@ -1097,6 +1159,9 @@ pub const GROTESK: Anatomy = Anatomy {
         rule_tone: Tone::Ink,
         ..BASE_HEAD
     },
+    // rail: a plain rule; this register paints no gradient onto one. hud: clip-path 0 times.
+    rail: Rule::Thin,
+    hud: false,
 };
 
 /// lapis. Proposed in research/ratatui/ANATOMY_PROPOSAL.md, which cites the
@@ -1135,6 +1200,9 @@ pub const LAPIS: Anatomy = Anatomy {
         spaced: true,
         ..BASE_HEAD
     },
+    // rail: a plain rule; this register paints no gradient onto one. hud: clip-path 6 times.
+    rail: Rule::Thin,
+    hud: true,
 };
 
 /// nostromo. Proposed in research/ratatui/ANATOMY_PROPOSAL.md, which cites the
@@ -1177,6 +1245,9 @@ pub const NOSTROMO: Anatomy = Anatomy {
         spaced: true,
         ..BASE_HEAD
     },
+    // rail: a plain rule; this register paints no gradient onto one. hud: clip-path 4 times.
+    rail: Rule::Thin,
+    hud: false,
 };
 
 /// titanium. Proposed in research/ratatui/ANATOMY_PROPOSAL.md, which cites the
@@ -1212,6 +1283,9 @@ pub const TITANIUM: Anatomy = Anatomy {
     // titanium-register.css keeps the base header; its --card hover plate
     // is the selected row here.
     table: BASE_HEAD,
+    // rail: a plain rule; this register paints no gradient onto one. hud: clip-path 6 times.
+    rail: Rule::Thin,
+    hud: true,
 };
 
 /// Every theme's anatomy, in `themes/order.json`'s order, so `ThemeId`
