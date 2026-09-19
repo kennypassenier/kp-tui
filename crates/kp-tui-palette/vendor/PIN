@@ -1,0 +1,4 @@
+version = 7.0.0
+asset = kp-tui-palette.rs
+sha256 = dfbfb0228cdc5a032423198362beeceb5385b695872df159b64db5bb3417a553
+release = https://github.com/kennypassenier/kp-themes/releases/tag/v7.0.0
