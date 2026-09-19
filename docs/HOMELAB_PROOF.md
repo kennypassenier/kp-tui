@@ -423,3 +423,53 @@ widget (`Density`) that any pane can ask for.
 | `LogLine::at_ms` | a line's own timestamp, back out of the string |
 
 Four tests came with them, and the suite is 61 across the workspace.
+
+## The sixth and seventh proofs: doctor and splash, 2026-09-20
+
+Kenny chose "de twee laatste schermen" as the next step, so homelab's two
+smallest screens were rebuilt and its nine are now eight rebuilt and one
+left alone.
+
+**doctor** (`view/doctor.rs`, 59 lines → 137). It asks the crate for one
+thing the five before it never did: read a tone out of a sentence, and
+then find an ink for that tone on the plate the line lands on. That is
+`tone_of` plus `Theme::ink`, both already there. The report keeps its
+marker word beside the state dot, because a diagnosis read with no colour
+at all must still say which line failed [fix-1], and the words sit in a
+column four cells wide [fix-64].
+
+**splash** (`view/splash.rs`, 98 lines → 110). This one found the last gap
+of the set. It is the single place in homelab's whole client where a
+colour is computed rather than named: the logo walks a cyan-to-magenta
+gradient written in raw RGB. A theme should answer for its own ramp, so
+`Theme::ramp` reads between the five chart colours the register already
+declares — twenty-two ramps, no literal [gap-16]. Its boot lines are
+centred as a block rather than one at a time, which is the column rule
+again [fix-64].
+
+The shell tab is the ninth screen and is not rebuilt: it is a terminal
+inside a terminal, and nothing in it is drawn by the client.
+
+| Screen | homelab | rebuild | what it asked of the crate |
+| --- | --- | --- | --- |
+| doctor | 59 | 137 | a tone read out of a sentence |
+| splash | 98 | 110 | `Theme::ramp` [gap-16] |
+
+Both are in the comparison page: `kp-compare` now drives six tabs instead
+of five. The splash is not, because it is gone before a harness can read
+it — `--show screen:splash` draws the rebuild on its own.
+
+## What Kenny changed his mind about, 2026-09-20
+
+The dashboard is homelab's four-panel layout again. He picked **Sparks
+behind** off the gallery, saw it built, and took it back: *"het dashboard
+mag wel het oude Homelab Rust dashboard zijn, vind ik toch beter."* The
+direction cost 43 lines and is gone; what stayed from that day is the
+crate work under it. That is what the gallery is for — a direction is
+cheap to build and cheap to drop, and the screen it would replace is one
+`git show` away.
+
+Two things came out of the same message. The bars are no longer painted
+flat: each wears the weave its own register declares for the ground
+[fix-66]. And the log pane scrolls sideways, on keys that sit in the same
+place on azerty as on qwerty [fix-67].

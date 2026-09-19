@@ -3,7 +3,7 @@
 
 use std::path::PathBuf;
 
-use crossterm::event::{KeyCode, KeyEvent, KeyEventKind};
+use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::{
     Frame,
     layout::{Constraint, Layout, Rect},
@@ -93,6 +93,12 @@ pub enum Screen {
     /// homelab's own deploy window, rebuilt on this crate — the fifth
     /// proof, and the only one that is an overlay [docs/HOMELAB_PROOF.md].
     Deploy,
+    /// homelab's own doctor tab, rebuilt on this crate — the sixth proof
+    /// [docs/HOMELAB_PROOF.md].
+    Doctor,
+    /// homelab's own boot splash, rebuilt on this crate — the seventh,
+    /// and the last of its nine screens [docs/HOMELAB_PROOF.md].
+    Splash,
     /// One of the twenty-five design directions, five per rebuilt screen
     /// [examples/demo/designs.rs]. A picture, not a screen.
     Design,
@@ -290,7 +296,16 @@ impl App {
         // not [fix-65].
         if self.screen == Screen::LogStream {
             let sources = crate::logstream::sources().len();
+            let shift = key.modifiers.contains(KeyModifiers::SHIFT);
             match key.code {
+                KeyCode::Left if shift => {
+                    self.stream.pan_by(-8);
+                    return;
+                }
+                KeyCode::Right if shift => {
+                    self.stream.pan_by(8);
+                    return;
+                }
                 KeyCode::Left => {
                     self.source_sel = (self.source_sel + sources - 1) % sources;
                     self.apply_source();
@@ -315,6 +330,18 @@ impl App {
                 }
                 KeyCode::Char('l') => {
                     self.stream.cycle_filter();
+                    return;
+                }
+                // Horizontal scrolling, on keys an azerty keyboard puts
+                // where a qwerty one does: h, j, k and l do not move
+                // between the two layouts, where the punctuation keys all
+                // do. Shift with the arrows does the same [fix-67].
+                KeyCode::Char('H') => {
+                    self.stream.pan_by(-8);
+                    return;
+                }
+                KeyCode::Char('L') => {
+                    self.stream.pan_by(8);
                     return;
                 }
                 KeyCode::Char('G') | KeyCode::End => {
@@ -366,7 +393,9 @@ impl App {
                     Screen::Ops => Screen::Settings,
                     Screen::Settings => Screen::LogStream,
                     Screen::LogStream => Screen::Deploy,
-                    Screen::Deploy => Screen::Dashboard,
+                    Screen::Deploy => Screen::Doctor,
+                    Screen::Doctor => Screen::Splash,
+                    Screen::Splash => Screen::Dashboard,
                     Screen::Design => Screen::Dashboard,
                 };
                 self.reveal_ms = 0;
@@ -481,6 +510,22 @@ impl App {
                 self.reveal_ms,
                 self.config.motion,
             );
+            return;
+        }
+        if self.screen == Screen::Doctor {
+            frame.render_widget(Block::new().style(self.theme.base()), frame.area());
+            crate::doctor::draw(
+                frame,
+                &self.theme,
+                self.reveal_ms < 400,
+                self.reveal_ms,
+                self.config.motion,
+            );
+            return;
+        }
+        if self.screen == Screen::Splash {
+            frame.render_widget(Block::new().style(self.theme.base()), frame.area());
+            crate::splash::draw(frame, &self.theme, self.reveal_ms, self.config.motion);
             return;
         }
         if self.screen == Screen::Design {

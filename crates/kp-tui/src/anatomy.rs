@@ -215,6 +215,30 @@ pub enum Texture {
     Diagonal { every: u16 },
 }
 
+impl Texture {
+    /// The two glyphs a progress bar is woven from in this theme: what a
+    /// filled cell carries, and what an empty one does.
+    ///
+    /// Kenny, 2026-09-20: *"vooruitgangsbalken mogen wat textuur hebben,
+    /// zoals de oude vooruitgangsbalken. nu is het te 'plat'"*. A bar
+    /// painted as a plain plate reads as a plate; homelab's own bars were
+    /// block characters. Rather than invent a twenty-third decision, the
+    /// bar wears the weave its own register already declares for the
+    /// ground, so no two themes with different grounds share a bar
+    /// [fix-66].
+    pub const fn weave(self) -> (&'static str, &'static str) {
+        match self {
+            // A register with no texture of its own keeps the solid block
+            // homelab used, over a track that is visible but quiet.
+            Texture::None => ("█", "░"),
+            Texture::Scanline { .. } => ("▓", "░"),
+            Texture::Grid { .. } => ("▒", "░"),
+            Texture::Dots { .. } => ("⣿", "⣀"),
+            Texture::Diagonal { .. } => ("▨", "░"),
+        }
+    }
+}
+
 /// The theme's attention treatment, which every register answers for
 /// itself. The package baseline (`css/components.css`, `kp-alarm-*`) is a
 /// settle of 240/520/480 ms once and a glow at 1400 ms

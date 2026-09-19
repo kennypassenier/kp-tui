@@ -213,6 +213,11 @@ pub struct LogBuffer {
     scroll: usize,
     /// Show this severity and everything more severe.
     pub filter: Severity,
+    /// How many characters the message column is shifted left. The fixed
+    /// columns in front of it — time, host, unit, level — do not move,
+    /// because a timestamp scrolled off the screen is a line you cannot
+    /// place [fix-64, fix-67].
+    pan: usize,
     /// Show only this unit; `None` shows every one of them. homelab's
     /// selector really filters, and a selector that only paints itself is
     /// a lost feature, not a simpler one [fix-65].
@@ -235,7 +240,23 @@ impl LogBuffer {
             scroll: 0,
             filter: Severity::Debug,
             source: None,
+            pan: 0,
         }
+    }
+
+    /// How far the message column is shifted.
+    pub fn pan(&self) -> usize {
+        self.pan
+    }
+
+    /// Shift the message column; negative shifts back towards the start,
+    /// and it never goes past it.
+    pub fn pan_by(&mut self, n: i32) {
+        self.pan = if n < 0 {
+            self.pan.saturating_sub(n.unsigned_abs() as usize)
+        } else {
+            self.pan.saturating_add(n as usize).min(4096)
+        };
     }
 
     /// The unit the selector points at, or `None` for all of them.
@@ -249,6 +270,7 @@ impl LogBuffer {
     pub fn select_source(&mut self, unit: Option<&str>) {
         self.source = unit.map(str::to_string);
         self.scroll = 0;
+        self.pan = 0;
     }
 
     pub fn push(&mut self, mut line: LogLine) {

@@ -17,6 +17,11 @@
 //!
 //! `--theme` picks the theme of the right column, `--size WxH` the terminal
 //! both are read at, and `--homelab` the binary to drive.
+//!
+//! Eight of homelab's nine screens are rebuilt; six of them are here. The
+//! shell tab is a terminal inside a terminal and is not rebuilt, and the
+//! boot splash is gone before a harness can read it — `--show
+//! screen:splash` draws the rebuild of that one on its own.
 
 use std::{
     io::{Read, Write},
@@ -34,7 +39,7 @@ struct Pair {
     caption: &'static str,
 }
 
-const PAIRS: [Pair; 5] = [
+const PAIRS: [Pair; 6] = [
     Pair {
         keys: "\t",
         screen: "fleet",
@@ -54,6 +59,11 @@ const PAIRS: [Pair; 5] = [
         keys: "\t\t",
         screen: "logs",
         caption: "Het logboek: de bron-kiezer en de stroom regels",
+    },
+    Pair {
+        keys: "\t\t\t",
+        screen: "doctor",
+        caption: "De doctor: de zelfdiagnose van de host",
     },
     Pair {
         keys: "\tD",
@@ -82,6 +92,13 @@ fn main() -> std::io::Result<()> {
 
     if args.iter().any(|a| a == "--designs") {
         return designs(&theme, cols, rows, &out);
+    }
+    // `--show homelab:<keys>,screen:<name>,design:<n>` lays any number of
+    // panes side by side in one row: for looking at a direction, the
+    // screen it would replace and the original all at once.
+    let show = opt("--show", "");
+    if !show.is_empty() {
+        return side_by_side(&show, &homelab, &theme, cols, rows, &out);
     }
     let mut sections = String::new();
     for pair in &PAIRS {
@@ -142,6 +159,56 @@ fn designs(theme: &str, cols: u16, rows: u16, out: &str) -> std::io::Result<()> 
     std::fs::write(out, designs_page(&sections, theme))?;
     println!("{out}: {count} design(s) at {cols}x{rows}");
     Ok(())
+}
+
+/// Any number of panes in one row, named by a spec.
+fn side_by_side(
+    spec: &str,
+    homelab: &str,
+    theme: &str,
+    cols: u16,
+    rows: u16,
+    out: &str,
+) -> std::io::Result<()> {
+    let mut panes = String::new();
+    let mut count = 0;
+    for item in spec.split(',') {
+        let (kind, arg) = item.split_once(':').unwrap_or((item, ""));
+        let (caption, shot) = match kind {
+            "homelab" => (
+                "Homelab Rust — de echte client".to_string(),
+                in_pty(homelab, &["tui", "--offline"], &unescape(arg), cols, rows),
+            ),
+            "design" => (
+                format!("kp-tui — ontwerprichting {arg}, zoals getoond"),
+                shot_at(
+                    &["--screen", "design", "--variant", arg],
+                    theme,
+                    cols,
+                    rows,
+                    "2600",
+                ),
+            ),
+            _ => (
+                format!("kp-tui — {arg}, zoals nu gebouwd"),
+                shot_at(&["--screen", arg], theme, cols, rows, "2600"),
+            ),
+        };
+        panes.push_str(&format!(
+            "\n    <figure><figcaption>{caption}</figcaption>{shot}</figure>"
+        ));
+        count += 1;
+    }
+    let sections = format!("\n<section>\n  <div class=\"pair\">{panes}\n  </div>\n</section>");
+    std::fs::write(out, page(&sections, theme))?;
+    println!("{out}: {count} pane(s) at {cols}x{rows}");
+    Ok(())
+}
+
+/// `\t` in a spec is a tab, so a key sequence can be typed on a command
+/// line.
+fn unescape(keys: &str) -> String {
+    keys.replace("\\t", "\t")
 }
 
 fn heading(screen: &str) -> &'static str {

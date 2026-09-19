@@ -566,11 +566,13 @@ impl Widget for Meter<'_> {
                 Style::new().fg(t.border_strong).bg(t.card),
             ));
         }
-        // Painted as background rather than block glyphs: a solid bar reads
-        // at any font, and the theme's own colour does the work.
+        // The weave this register declares for its ground, in its own
+        // colour over the track: a bar with grain rather than a plate
+        // [fix-66].
+        let (woven, empty) = a.fx.texture.weave();
         spans.push(Span::styled(
-            " ".repeat(filled as usize),
-            Style::new().bg(fill),
+            woven.repeat(filled as usize),
+            Style::new().fg(fill).bg(t.muted),
         ));
         let mut rest = bar_w.saturating_sub(filled) as usize;
         if eighths > 0 && rest > 0 {
@@ -580,7 +582,10 @@ impl Widget for Meter<'_> {
             ));
             rest -= 1;
         }
-        spans.push(Span::styled(" ".repeat(rest), Style::new().bg(t.muted)));
+        spans.push(Span::styled(
+            empty.repeat(rest),
+            Style::new().fg(t.border_strong).bg(t.muted),
+        ));
         if let Some((_, close)) = ends {
             spans.push(Span::styled(
                 close.to_string(),
@@ -799,13 +804,18 @@ impl<'a> LogPane<'a> {
         } else {
             "following".to_string()
         };
+        let panned = if l.pan() > 0 {
+            format!("+{} · ", l.pan())
+        } else {
+            String::new()
+        };
         let live = if self.live {
             "live"
         } else {
             "synthetic, not real"
         };
         Line::from(vec![
-            Span::styled(format!(" {live} · {filter} · "), muted),
+            Span::styled(format!(" {live} · {filter} · {panned}"), muted),
             Span::styled(
                 state,
                 if l.paused() {
@@ -929,7 +939,12 @@ impl Widget for LogPane<'_> {
                     ),
                     Span::styled(" ", Style::new()),
                     Span::styled(
-                        line.message.clone(),
+                        // The message column, shifted by however far the
+                        // pane is panned [fix-67].
+                        line.message
+                            .chars()
+                            .skip(self.buffer.pan())
+                            .collect::<String>(),
                         crate::dashboard::message_style(self.theme, line.severity),
                     ),
                 ])

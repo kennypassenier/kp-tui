@@ -178,6 +178,84 @@ functies en kijk welke ik nog vergeten ben."*
    is not called done until every row is ticked.
 9. **When we review the measure.** At the first release of this crate.
 
+## fix-66 · The bars were painted flat
+
+Kenny, on the five built screens, 2026-09-20: *"En vooruitgangsbalken
+mogen wat textuur hebben, zoals de oude vooruitgangsbalken. nu is het te
+'plat'"*.
+
+1. **What went wrong.** `Meter` painted its fill as a run of spaces on a
+   coloured background. That is the cleanest bar a terminal can draw and
+   it reads as a plate: no grain, no weave, and the same shape in all
+   twenty-two registers.
+2. **Why it happened.** The first version of the widget carried a comment
+   defending it — "a solid bar reads at any font" — and a test asserting
+   it (`!row.contains("█")`). A decision was written down and never put to
+   Kenny; he had said themes must differ from each other in every element
+   they can.
+3. **Where else the same fault sits.** **Gezocht met:**
+   `grep -rn 'Style::new().bg(' crates/kp-tui/src/components.rs` — eleven
+   plates. Ten of them are plates by right (a badge, a selected row, a
+   header, a popup). The bar was the one that stood for a quantity, and a
+   quantity reads better with grain.
+4. **How we prevent recurrence.** The bar wears the weave its own
+   register already declares for the ground: `Texture::weave` maps the
+   five ground textures onto a (filled, empty) pair, so a scanline theme's
+   bar is banded, a dotted theme's is braille, and a theme with no ground
+   texture keeps the solid block homelab drew. No twenty-third per-theme
+   decision was invented for it.
+5. **What the remedy costs.** Nothing measurable: the same cells, with a
+   glyph and a foreground instead of a background.
+6. **Who enforces it.** Code: `a_bar_is_woven_the_way_its_own_ground_is`
+   walks all 22 registers, asserts each bar carries both glyphs of its own
+   weave, and asserts all five weaves are reached.
+7. **How we measure that it works, and when.** At this commit the test is
+   green and the stacks shot shows five weaves across five registers.
+   Again at the first release: the question then is whether any register's
+   bar is unreadable at a small font. Queued as `fix-66-M1`.
+8. **The fallback if it fails.** If a weave reads as noise rather than
+   texture, the mapping narrows to two — solid and banded — rather than
+   going back to the plate.
+9. **When we review the measure.** At the first release of this crate.
+
+## fix-67 · Sideways had nowhere to go, and the keys must suit azerty
+
+Kenny, on the log features, 2026-09-20: *"Klopt, links en rechts kiezen de
+bron, horizontaal scrollen moet met andere toetsen, houdt rekening met
+mijn azerty indeling."*
+
+1. **What went wrong.** The log pane could not scroll sideways at all, so
+   a line longer than the pane was simply cut. The arrows were taken by
+   the source selector, which is right, and nothing else was offered.
+2. **Why it happened.** homelab has no horizontal scrolling either, and
+   the rebuild was measured against homelab. "Nothing is missing against
+   the original" is not the same as "nothing is missing".
+3. **Where else the same fault sits.** **Gezocht met:**
+   `grep -rn 'KeyCode::Char' crates/kp-tui/examples/demo/app.rs` — every
+   key the demo binds, read against a Belgian azerty layout. The letters
+   `h`, `j`, `k` and `l` sit in the same place on both layouts; `a`, `z`,
+   `m`, `q`, `w` and every punctuation key move. Nothing bound today sits
+   on a key that moves except `a` (the alarm) and `q` (quit), which are
+   still one key press wherever they are.
+4. **How we prevent recurrence.** `LogBuffer::pan_by` shifts the message
+   column; `H` and `L` drive it, and shift with the arrows does the same.
+   The columns in front of the message — time, host, unit, level — do not
+   move, so a panned line can still be placed.
+5. **What the remedy costs.** One field on the buffer, one `skip` on the
+   message span, and two key bindings. The status corner says `+16` while
+   the view is panned, so a reader is never lost.
+6. **Who enforces it.** Code:
+   `panning_sideways_moves_the_message_and_leaves_the_stamp_where_it_is`.
+7. **How we measure that it works, and when.** At this commit the test is
+   green: the timestamp and unit stay put, the message moves sixteen
+   characters, and panning back past the start stops at zero. Again when
+   the crate binds its next key, where the question is whether it sits on
+   a key azerty moves. Queued as `fix-67-M1`.
+8. **The fallback if it fails.** If `H` and `L` turn out to collide with
+   something a consumer wants, the pane takes its bindings from the caller
+   rather than naming them itself.
+9. **When we review the measure.** At the first release of this crate.
+
 ## The queue
 
 | ID | What | Status |
@@ -186,3 +264,5 @@ functies en kijk welke ik nog vergeten ben."*
 | fix-2-M1 | Does a table cell keep the colour of every part it is built from? Measured at this commit (2026-09-19): the test fails against the old code with left Rgb(163, 41, 41), right Rgb(23, 30, 43), and passes against the new; the ops shot draws five hue bars and two badge colours in one row. Again at the third screen this crate draws. | open |
 | fix-64-M1 | Do elements begin at fixed columns? Measured at this commit (2026-09-19): `meters_in_one_group_start_their_bars_in_the_same_column` is green over 22 registers, and the stacks shot shows every card's two bars beginning in the same column. Again at the next screen built from a direction. | open |
 | fix-65-M1 | Does a rebuilt screen still do everything the original did? Measured at this commit (2026-09-19): the two log tests are green, and the log screen binds all five keys homelab binds plus the level filter it lacks. Again at the sixth rebuilt screen. | open |
+| fix-66-M1 | Does every register's bar carry its own weave, and does it read? Measured at this commit (2026-09-20): `a_bar_is_woven_the_way_its_own_ground_is` is green over 22 registers with all five weaves reached. Again at the first release, on a small font. | open |
+| fix-67-M1 | Can a long log line be read to its end, on Kenny's own keyboard? Measured at this commit (2026-09-20): the pan test is green, and of the demo's bindings only `a` and `q` sit on keys azerty moves. Again at the next key the crate binds. | open |

@@ -74,19 +74,22 @@ plus its anatomy), and the widgets:
 
 ## Status
 
-Started 2026-09-17. The crates build, 61 tests pass, clippy is clean, and
+Started 2026-09-17. The crates build, 64 tests pass, clippy is clean, and
 CI runs fmt, clippy and the suite on every push.
 
-The demo draws nine screens — `dashboard`, `components`, `console`,
-`effects`, `fleet`, `ops`, `settings`, `logs`, `deploy` — of which the last
-five are homelab's own screens rebuilt on nothing but this crate, measured
-and put side by side with homelab's client in
-[docs/HOMELAB_PROOF.md](docs/HOMELAB_PROOF.md).
+The demo draws eleven screens — `dashboard`, `components`, `console`,
+`effects`, `fleet`, `ops`, `settings`, `logs`, `deploy`, `doctor`,
+`splash` — of which the last seven are homelab's own screens rebuilt on
+nothing but this crate, measured and put side by side with homelab's
+client in [docs/HOMELAB_PROOF.md](docs/HOMELAB_PROOF.md). Eight of
+homelab's nine are rebuilt; the shell tab is a terminal inside a terminal
+and is left alone.
 
 Beside them are twenty-five design directions, five per rebuilt screen:
 `--screen design --variant N` for one, and
 `cargo run -p kp-compare -- --designs` for the whole gallery with the
-paragraph that belongs to each. Kenny picked one per screen on 2026-09-19,
-and those five are what the rebuilt screens now draw — card grid, sparks
-behind, grouped cards with a diff under them, a density band, and two
-panes.
+paragraph that belongs to each. Kenny picked one per screen on 2026-09-19
+and unpicked one of them the next day, so four of the five are what the
+rebuilt screens draw — card grid, grouped cards with a diff under them, a
+density band, and two panes — and the dashboard is homelab's own layout
+again.

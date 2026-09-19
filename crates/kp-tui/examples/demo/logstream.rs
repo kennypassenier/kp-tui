@@ -114,10 +114,10 @@ pub fn feed() -> LogBuffer {
 const KEYS: [(&str, &str); 6] = [
     ("←→", "source"),
     ("↑↓", "scroll — and pause"),
+    ("H L", "sideways"),
     ("space", "follow"),
     ("l", "level"),
     ("G", "tail"),
-    ("q", "quit"),
 ];
 
 /// The sources the selector offers: everything, then one per stack.

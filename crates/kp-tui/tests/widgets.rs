@@ -533,16 +533,44 @@ fn a_meter_crosses_into_warning_and_then_into_danger() {
         Meter::new(&th, "ssd", 0.55).thresholds(0.5, 0.8).colour(),
         rgb(p.warning)
     );
-    // The bar is painted, not spelled: no block glyphs in the row.
+    // The bar is woven in the weave its own register declares, and the
+    // filled half carries the primary as its ink [fix-66]. Formal
+    // declares no ground texture, so its bar is the solid block homelab
+    // drew.
     let mut buf = Buffer::empty(Rect::new(0, 0, 30, 1));
     Meter::new(&th, "ram", 0.5).render(buf.area, &mut buf);
     let row: String = (0..30).map(|x| buf[(x, 0)].symbol().to_string()).collect();
-    assert!(!row.contains("█") && !row.contains("░"), "{row}");
+    assert!(row.contains("█") && row.contains("░"), "{row}");
     assert!(row.contains("50%"), "{row}");
     let filled = (0..30)
-        .filter(|x| buf[(*x, 0)].bg == rgb(p.primary))
+        .filter(|x| buf[(*x, 0)].fg == rgb(p.primary) && buf[(*x, 0)].symbol() == "█")
         .count();
     assert!(filled > 5, "half the bar is the primary: {filled}");
+}
+
+#[test]
+fn a_bar_is_woven_the_way_its_own_ground_is() {
+    // Kenny, 2026-09-20: a bar painted as a plate is too flat. It now
+    // wears the weave its register already declares for the ground, so a
+    // scanline theme's bar is not a dotted theme's bar [fix-66].
+    let mut seen: Vec<(&str, &str)> = Vec::new();
+    for id in ThemeId::ALL {
+        let th = Theme::new(id, ColorDepth::TrueColor);
+        let weave = id.anatomy().fx.texture.weave();
+        let mut buf = Buffer::empty(Rect::new(0, 0, 30, 1));
+        Meter::new(&th, "ram", 0.5).render(buf.area, &mut buf);
+        let row: String = (0..30).map(|x| buf[(x, 0)].symbol().to_string()).collect();
+        assert!(
+            row.contains(weave.0) && row.contains(weave.1),
+            "{}: wants {weave:?} in its bar: {row:?}",
+            id.name()
+        );
+        if !seen.contains(&weave) {
+            seen.push(weave);
+        }
+    }
+    // All five weaves are in use; none is a branch nothing reaches.
+    assert_eq!(seen.len(), 5, "{seen:?}");
 }
 
 #[test]
@@ -1938,4 +1966,89 @@ fn a_busy_minute_with_an_error_in_it_is_drawn_in_the_danger_ink() {
             id.name()
         );
     }
+}
+
+#[test]
+fn panning_sideways_moves_the_message_and_leaves_the_stamp_where_it_is() {
+    // Kenny, 2026-09-20: the arrows pick the source, so sideways needs
+    // other keys — and the timestamp may not scroll away with the text
+    // [fix-67].
+    let th = Theme::new(ThemeId::Formal, ColorDepth::TrueColor);
+    let mut buffer = LogBuffer::new(20);
+    buffer.push(logs::LogLine::new(
+        "09:41:02.118",
+        "pve-01",
+        "web",
+        Severity::Info,
+        "caddy: 200 GET /a/very/long/path/that/runs/off/the/side 2.1 kB",
+    ));
+    let read = |buffer: &LogBuffer| {
+        let mut buf = Buffer::empty(Rect::new(0, 0, 60, 3));
+        LogPane::new(&th, "Log", buffer)
+            .live(false)
+            .render(buf.area, &mut buf);
+        (0..3)
+            .map(|y| {
+                (0..60)
+                    .map(|x| buf[(x, y)].symbol().to_string())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    let before = read(&buffer);
+    assert!(before.contains("caddy: 200 GET"), "{before}");
+    buffer.pan_by(16);
+    assert_eq!(buffer.pan(), 16);
+    let after = read(&buffer);
+    assert!(
+        after.contains("09:41:02.118") && after.contains("web"),
+        "the stamp and the unit stay put: {after}"
+    );
+    assert!(
+        !after.contains("caddy: 200 GET") && after.contains("long/path"),
+        "the message moved: {after}"
+    );
+    // It never walks off the front.
+    buffer.pan_by(-999);
+    assert_eq!(buffer.pan(), 0);
+}
+
+#[test]
+fn a_theme_answers_for_its_own_ramp() {
+    // homelab's splash computes a cyan-to-magenta gradient in raw RGB —
+    // the one colour in its client that is not named. The theme answers
+    // for it now, out of its own five chart colours [gap-16].
+    let mut ends: Vec<(Rgb, Rgb)> = Vec::new();
+    for id in ThemeId::ALL {
+        let th = Theme::new(id, ColorDepth::TrueColor);
+        let p = id.palette();
+        assert_eq!(th.ramp_rgb(0.0), p.chart_1, "{}", id.name());
+        assert_eq!(th.ramp_rgb(1.0), p.chart_5, "{}", id.name());
+        // Out of range is clamped, not wrapped.
+        assert_eq!(th.ramp_rgb(-2.0), p.chart_1, "{}", id.name());
+        assert_eq!(th.ramp_rgb(9.0), p.chart_5, "{}", id.name());
+        // A point between two stops lies between them on every channel.
+        let quarter = th.ramp_rgb(0.125);
+        let between = |a: u8, b: u8, c: u8| (a.min(b)..=a.max(b)).contains(&c);
+        assert!(
+            between(p.chart_1.0, p.chart_2.0, quarter.0)
+                && between(p.chart_1.1, p.chart_2.1, quarter.1)
+                && between(p.chart_1.2, p.chart_2.2, quarter.2),
+            "{}: {quarter:?} is not between {:?} and {:?}",
+            id.name(),
+            p.chart_1,
+            p.chart_2
+        );
+        ends.push((p.chart_1, p.chart_5));
+    }
+    // The ramps are the registers' own: no two themes share both ends.
+    let mut seen = ends.clone();
+    seen.sort_by_key(|(a, b)| (a.0, a.1, a.2, b.0, b.1, b.2));
+    seen.dedup();
+    assert!(
+        seen.len() >= 20,
+        "22 registers, {} distinct ramps",
+        seen.len()
+    );
 }

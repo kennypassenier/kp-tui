@@ -99,6 +99,29 @@ impl Theme {
         p.foreground
     }
 
+    /// A point on the theme's own chart ramp, `0.0` to `1.0`: the five
+    /// chart colours laid end to end and read between.
+    ///
+    /// homelab's splash walks a cyan-to-magenta gradient it writes in raw
+    /// RGB — the one place in its whole client where a colour is computed
+    /// rather than named. This is the same idea asked of the theme, so
+    /// twenty-two registers each have their own ramp and none of them is
+    /// a literal [gap-16].
+    pub fn ramp(&self, t: f32) -> Color {
+        self.depth.resolve(Role::Ink, self.ramp_rgb(t))
+    }
+
+    pub fn ramp_rgb(&self, t: f32) -> Rgb {
+        let p = self.id.palette();
+        let stops = [p.chart_1, p.chart_2, p.chart_3, p.chart_4, p.chart_5];
+        let t = t.clamp(0.0, 1.0) * (stops.len() - 1) as f32;
+        let i = (t.floor() as usize).min(stops.len() - 2);
+        let f = t - i as f32;
+        let mix = |a: u8, b: u8| (a as f32 + (b as f32 - a as f32) * f).round() as u8;
+        let (a, b) = (stops[i], stops[i + 1]);
+        Rgb(mix(a.0, b.0), mix(a.1, b.1), mix(a.2, b.2))
+    }
+
     /// A tone as the palette writes it, with no reading taken.
     pub fn tone_rgb(&self, tone: Tone) -> Option<Rgb> {
         let p = self.id.palette();

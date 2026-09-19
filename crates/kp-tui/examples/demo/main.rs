@@ -1,4 +1,4 @@
-//! `kp-tui-demo [--screen dashboard|…|deploy|design --variant N] [--theme NAME]
+//! `kp-tui-demo [--screen dashboard|…|deploy|doctor|splash|design --variant N] [--theme NAME]
 //!  [--colors truecolor|256|16] [--reduced-motion] [--config PATH] [--fps N]
 //!  [--synthetic-logs] [--exit-after SECONDS] [--shot] [--at MS] [--size WxH]
 //!  [--variant N] [--designs]
@@ -23,10 +23,12 @@ mod app;
 mod config;
 mod deploy;
 mod designs;
+mod doctor;
 mod fleet;
 mod logstream;
 mod ops;
 mod settings;
+mod splash;
 
 use app::{App, Screen};
 mod shot;
@@ -82,6 +84,8 @@ fn main() -> io::Result<()> {
         Some("settings") => Screen::Settings,
         Some("logs") => Screen::LogStream,
         Some("deploy") => Screen::Deploy,
+        Some("doctor") => Screen::Doctor,
+        Some("splash") => Screen::Splash,
         Some("design") => Screen::Design,
         _ => Screen::Dashboard,
     };
