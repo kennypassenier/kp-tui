@@ -102,6 +102,23 @@ impl LogLine {
 }
 
 /// `HH:MM:SS.mmm` from microseconds since the epoch and a UTC offset.
+impl LogLine {
+    /// The line's own timestamp in milliseconds past midnight, read back
+    /// out of the `HH:MM:SS.mmm` string it was handed. `None` when the
+    /// feed wrote something else.
+    pub fn at_ms(&self) -> Option<u64> {
+        let (hms, ms) = self.time.split_once('.')?;
+        let mut parts = hms.split(':');
+        let h: u64 = parts.next()?.parse().ok()?;
+        let m: u64 = parts.next()?.parse().ok()?;
+        let s: u64 = parts.next()?.parse().ok()?;
+        if parts.next().is_some() {
+            return None;
+        }
+        Some(((h * 60 + m) * 60 + s) * 1000 + ms.parse::<u64>().ok()?)
+    }
+}
+
 pub fn clock(micros: u64, offset_secs: i64) -> String {
     let secs = (micros / 1_000_000) as i64 + offset_secs;
     let day = secs.rem_euclid(86_400);
@@ -196,6 +213,10 @@ pub struct LogBuffer {
     scroll: usize,
     /// Show this severity and everything more severe.
     pub filter: Severity,
+    /// Show only this unit; `None` shows every one of them. homelab's
+    /// selector really filters, and a selector that only paints itself is
+    /// a lost feature, not a simpler one [fix-65].
+    source: Option<String>,
 }
 
 impl Default for LogBuffer {
@@ -213,7 +234,21 @@ impl LogBuffer {
             pin: None,
             scroll: 0,
             filter: Severity::Debug,
+            source: None,
         }
+    }
+
+    /// The unit the selector points at, or `None` for all of them.
+    pub fn source(&self) -> Option<&str> {
+        self.source.as_deref()
+    }
+
+    /// Point the selector at one unit, or at all of them. The view drops
+    /// back to the tail, because a scroll offset counted in the old
+    /// selection means nothing in the new one.
+    pub fn select_source(&mut self, unit: Option<&str>) {
+        self.source = unit.map(str::to_string);
+        self.scroll = 0;
     }
 
     pub fn push(&mut self, mut line: LogLine) {
@@ -261,8 +296,15 @@ impl LogBuffer {
         self.scroll = self.scroll.saturating_add(n).min(self.shown().count());
     }
 
+    /// Scrolling forward to the last line lets go of the pin again, the
+    /// way homelab's log tab does: the tail is where following resumes,
+    /// and asking for it twice would be a keystroke nobody presses
+    /// [fix-65].
     pub fn scroll_down(&mut self, n: usize) {
         self.scroll = self.scroll.saturating_sub(n);
+        if self.scroll == 0 {
+            self.pin = None;
+        }
     }
 
     pub fn cycle_filter(&mut self) {
@@ -272,9 +314,10 @@ impl LogBuffer {
 
     fn shown(&self) -> impl DoubleEndedIterator<Item = &LogLine> {
         let pin = self.pin.unwrap_or(u64::MAX);
-        self.lines
-            .iter()
-            .filter(move |l| l.severity <= self.filter && l.seq <= pin)
+        let source = self.source.as_deref();
+        self.lines.iter().filter(move |l| {
+            l.severity <= self.filter && l.seq <= pin && source.is_none_or(|s| l.unit == s)
+        })
     }
 
     /// Lines that arrived after the pin, whatever the filter.
@@ -290,6 +333,59 @@ impl LogBuffer {
     /// How far back the view is scrolled, in lines.
     pub fn scroll(&self) -> usize {
         self.scroll
+    }
+
+    /// The shown lines split into `n` buckets of equal *time*, oldest
+    /// first: how many landed in each, and how many of those were an
+    /// error or worse.
+    ///
+    /// By the clock and not by position, because by position every bucket
+    /// holds the same number of lines by construction — a band drawn that
+    /// way is flat whatever the feed did. Lines whose timestamp does not
+    /// parse fall back to their place in the buffer.
+    pub fn buckets(&self, n: usize) -> (Vec<u32>, Vec<u32>) {
+        let lines: Vec<&LogLine> = self.shown().collect();
+        if n == 0 || lines.is_empty() {
+            return (Vec::new(), Vec::new());
+        }
+        let mut counts = vec![0u32; n];
+        let mut errors = vec![0u32; n];
+        let stamps: Vec<Option<u64>> = lines.iter().map(|l| l.at_ms()).collect();
+        let first = stamps.iter().flatten().min().copied();
+        let last = stamps.iter().flatten().max().copied();
+        let span = match (first, last) {
+            (Some(a), Some(b)) if b > a => Some((a, b - a)),
+            _ => None,
+        };
+        for (i, line) in lines.iter().enumerate() {
+            let b = match (span, stamps[i]) {
+                (Some((from, width)), Some(at)) => {
+                    (((at - from) as u128 * n as u128) / width as u128) as usize
+                }
+                _ => i * n / lines.len(),
+            }
+            .min(n - 1);
+            counts[b] += 1;
+            if line.severity <= Severity::Error {
+                errors[b] += 1;
+            }
+        }
+        (counts, errors)
+    }
+
+    /// How wide the host and the unit columns have to be for every line
+    /// in the buffer to start its message in the same place [fix-64].
+    /// Capped, so one long unit name cannot eat the row.
+    pub fn columns(&self) -> (usize, usize) {
+        let width = |f: fn(&LogLine) -> &str| {
+            self.lines
+                .iter()
+                .map(|l| f(l).chars().count())
+                .max()
+                .unwrap_or(0)
+                .min(16)
+        };
+        (width(|l| &l.host), width(|l| &l.unit))
     }
 
     /// The `height` lines the pane shows, oldest first.

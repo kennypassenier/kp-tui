@@ -11,8 +11,17 @@
 //! It found one gap on the way: a bar with a sentence written across it
 //! rather than a percentage beside it. That is `Meter::across` now, so
 //! nothing here is marked `GAP` and no colour on it is chosen by hand.
+//!
+//! Kenny picked **Two panes** out of five directions: the steps on the
+//! left, the transcript on the right, both moving at once. The transcript
+//! keeps every line it had — the direction adds the answer to "where is
+//! it now", it does not take the output away [fix-65]. The steps' own
+//! columns are fixed, so a longer name cannot push the timing sideways
+//! [fix-64].
 
-use kp_tui::{Glitch, KeyHints, Meter, Popup, PopupKind, Stream, Theme, Tone, fx::Motion, spinner};
+use kp_tui::{
+    Badge, Glitch, KeyHints, Meter, Popup, PopupKind, Stream, Theme, Tone, fx::Motion, spinner,
+};
 use ratatui::{
     Frame,
     layout::{Constraint, Layout, Rect},
@@ -84,6 +93,47 @@ pub const ASK: Ask = Ask {
     if_stopped: "the deploy finishes, the images stay",
 };
 
+/// The steps this deploy walks, and where it stands in them. The
+/// transcript is what each step said; this is what they are.
+pub struct Phase {
+    pub name: &'static str,
+    pub state: Tone,
+    pub says: &'static str,
+}
+
+pub const PHASES: [Phase; 6] = [
+    Phase {
+        name: "sync",
+        state: Tone::Success,
+        says: "4.2 s · 118 files",
+    },
+    Phase {
+        name: "gates",
+        state: Tone::Success,
+        says: "2 of 2 passed",
+    },
+    Phase {
+        name: "pull",
+        state: Tone::Success,
+        says: "6 digests pinned",
+    },
+    Phase {
+        name: "up",
+        state: Tone::Info,
+        says: "recreating 2 of 6",
+    },
+    Phase {
+        name: "health",
+        state: Tone::Warning,
+        says: "retrying, 30 s",
+    },
+    Phase {
+        name: "prune",
+        state: Tone::MutedInk,
+        says: "waiting on an answer",
+    },
+];
+
 const KEYS: [(&str, &str); 3] = [
     ("↑↓", "scroll"),
     ("a / s", "answer"),
@@ -112,7 +162,7 @@ pub fn draw(frame: &mut Frame, th: &Theme, asking: bool, reveal_ms: u32, motion:
         ),
     );
     let inner = popup.render_over(screen, frame.buffer_mut());
-    let [feed, transfer, gauge, footer] = Layout::vertical([
+    let [panes, transfer, gauge, footer] = Layout::vertical([
         Constraint::Min(4),
         Constraint::Length(2),
         Constraint::Length(1),
@@ -120,21 +170,11 @@ pub fn draw(frame: &mut Frame, th: &Theme, asking: bool, reveal_ms: u32, motion:
     ])
     .areas(inner);
 
-    // The transcript: one line per step, each in the ink its tone deserves
-    // on the surface it lands on.
-    let lines: Vec<Line<'static>> = TRANSCRIPT
-        .iter()
-        .map(|step| {
-            Line::from(Span::styled(
-                format!("  {}", step.text),
-                Style::new().fg(th.ink(step.tone, th.id.palette().popover)),
-            ))
-        })
-        .collect();
-    Paragraph::new(lines)
-        .style(Style::new().bg(th.c.popover))
-        .render(feed, frame.buffer_mut());
-
+    // Two panes: where the deploy stands, and what it has been saying.
+    let [steps, feed] =
+        Layout::horizontal([Constraint::Length(34), Constraint::Min(30)]).areas(panes);
+    draw_steps(frame, th, steps);
+    draw_feed(frame, th, feed);
     if asking {
         draw_ask(frame, th, feed);
     }
@@ -179,6 +219,53 @@ pub fn draw(frame: &mut Frame, th: &Theme, asking: bool, reveal_ms: u32, motion:
     .render(footer, frame.buffer_mut());
 }
 
+/// The left pane: the steps, their state and what each one has to say
+/// for itself — all three in columns that do not move.
+fn draw_steps(frame: &mut Frame, th: &Theme, area: Rect) {
+    let names: Vec<&str> = PHASES.iter().map(|p| p.name).collect();
+    let column = kp_tui::label_column(th, &names) + 2;
+    let mut lines = vec![Line::from(Span::styled(
+        "  where it stands".to_string(),
+        Style::new().fg(th.c.muted_foreground),
+    ))];
+    for phase in PHASES.iter() {
+        let ink = th.ink(phase.state, th.id.palette().popover);
+        lines.push(Line::from(vec![
+            Span::raw("  "),
+            Badge::state(th, phase.state),
+            Span::raw(" "),
+            Span::styled(
+                format!("{:<column$}", phase.name),
+                Style::new().fg(ink).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                phase.says.to_string(),
+                Style::new().fg(th.c.muted_foreground),
+            ),
+        ]));
+    }
+    Paragraph::new(lines)
+        .style(Style::new().bg(th.c.popover))
+        .render(area, frame.buffer_mut());
+}
+
+/// The right pane: the transcript, one line per step, each in the ink its
+/// tone deserves on the surface it lands on.
+fn draw_feed(frame: &mut Frame, th: &Theme, area: Rect) {
+    let lines: Vec<Line<'static>> = TRANSCRIPT
+        .iter()
+        .map(|step| {
+            Line::from(Span::styled(
+                format!("  {}", step.text),
+                Style::new().fg(th.ink(step.tone, th.id.palette().popover)),
+            ))
+        })
+        .collect();
+    Paragraph::new(lines)
+        .style(Style::new().bg(th.c.popover))
+        .render(area, frame.buffer_mut());
+}
+
 /// The question, over the foot of the transcript: what it asks, and what
 /// each answer does — not only the two words.
 fn draw_ask(frame: &mut Frame, th: &Theme, over: Rect) {
@@ -191,10 +278,13 @@ fn draw_ask(frame: &mut Frame, th: &Theme, over: Rect) {
     let heading = format!("{} · {}", ASK.op, ASK.step);
     let popup = Popup::new(th, &heading, (box_rect.width, h)).kind(PopupKind::Danger);
     let inner = popup.render_over(box_rect, frame.buffer_mut());
+    // Both answers start their explanation in the same column, so the
+    // two consequences can be read against each other [fix-64].
+    let column = kp_tui::label_column(th, &["toelaten", "stoppen"]) + 2;
     let answer = |key: &'static str, word: &'static str, tone: Tone, what: &'static str| {
         Line::from(vec![
             Span::styled(
-                format!("  {key} {word}  "),
+                format!("  {key} {:<column$}", word),
                 Style::new()
                     .fg(th.ink(tone, th.id.palette().popover))
                     .add_modifier(Modifier::BOLD),

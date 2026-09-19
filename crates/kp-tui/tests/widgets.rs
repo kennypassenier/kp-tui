@@ -5,15 +5,15 @@
 //! this crate's.
 
 use kp_tui::{
-    AlarmPanel, Badge, Choice, ColorDepth, Column, CommandPalette, DataTable, Facts, Field,
-    KeyHints, LogPane, Meter, Popup, PopupKind, SelectList, Spark, Stepper, Stream, Surface, Theme,
-    ThemeId, Ticker, Tone,
+    AlarmPanel, Badge, Choice, ColorDepth, Column, CommandPalette, DataTable, Density, Facts,
+    Field, KeyHints, LogPane, Meter, Popup, PopupKind, SelectList, Spark, Stepper, Stream, Surface,
+    Theme, ThemeId, Ticker, Tone,
     anatomy::Reveal,
     color::Rgb,
     dashboard::rate,
     fuzzy, fuzzy_score,
     fx::{self, Motion},
-    live, logs,
+    label_column, live, logs,
     logs::{LogBuffer, Severity},
     roll, source_colour, spinner,
     widgets::{Button, ButtonState},
@@ -1820,4 +1820,122 @@ fn a_progress_bar_closes_its_ends_the_way_its_register_does() {
     }
     // All four shapes are in use; none is a rule nothing reaches.
     assert_eq!(seen.len(), 4, "{seen:?}");
+}
+
+#[test]
+fn meters_in_one_group_start_their_bars_in_the_same_column() {
+    // Kenny's round-eight rule: the bar behind "memory" may not begin
+    // later than the bar behind "cpu" because the word is longer
+    // [fix-64].
+    let labels = ["cpu", "memory", "disk"];
+    for id in ThemeId::ALL {
+        let th = Theme::new(id, ColorDepth::TrueColor);
+        let width = label_column(&th, &labels);
+        let starts: Vec<u16> = labels
+            .iter()
+            .map(|label| {
+                let mut buf = Buffer::empty(Rect::new(0, 0, 30, 1));
+                Meter::new(&th, label, 0.5)
+                    .label_width(width)
+                    .render(buf.area, &mut buf);
+                // The bar begins at the first cell the theme painted a
+                // plate on, whatever glyph that plate carries.
+                (0..30)
+                    .find(|x| {
+                        buf[(*x, 0)]
+                            .style()
+                            .bg
+                            .is_some_and(|b| b != rgb(id.palette().card))
+                    })
+                    .expect("a bar was drawn")
+            })
+            .collect();
+        assert!(
+            starts.windows(2).all(|w| w[0] == w[1]),
+            "{}: bars start at {starts:?}",
+            id.name()
+        );
+    }
+}
+
+#[test]
+fn a_selected_source_really_hides_the_others() {
+    // The selector in the rebuild painted itself and filtered nothing,
+    // which is a feature lost rather than a screen simplified [fix-65].
+    let mut buffer = LogBuffer::new(50);
+    for (unit, message) in [
+        ("web", "caddy up"),
+        ("media", "scan done"),
+        ("web", "200 GET"),
+    ] {
+        buffer.push(logs::LogLine::new(
+            "09:41:02.118",
+            "pve-01",
+            unit,
+            Severity::Info,
+            message,
+        ));
+    }
+    assert_eq!(buffer.shown_count(), 3);
+    buffer.select_source(Some("web"));
+    assert_eq!(buffer.source(), Some("web"));
+    let shown: Vec<String> = buffer
+        .visible(10)
+        .into_iter()
+        .map(|l| l.message.clone())
+        .collect();
+    assert_eq!(shown, vec!["caddy up".to_string(), "200 GET".to_string()]);
+    buffer.select_source(None);
+    assert_eq!(buffer.shown_count(), 3);
+}
+
+#[test]
+fn scrolling_back_down_to_the_tail_follows_again() {
+    // homelab: arrow up pauses, and arrow down to the last line resumes
+    // [fix-65].
+    let mut buffer = LogBuffer::new(50);
+    for i in 0..10 {
+        buffer.push(logs::LogLine::new(
+            "09:41:02.118",
+            "pve-01",
+            "web",
+            Severity::Info,
+            &format!("line {i}"),
+        ));
+    }
+    assert!(!buffer.paused());
+    buffer.scroll_up(3);
+    assert!(buffer.paused(), "scrolling back pins the view");
+    buffer.scroll_down(1);
+    assert!(buffer.paused(), "still above the tail");
+    buffer.scroll_down(5);
+    assert!(!buffer.paused(), "the tail lets go of the pin");
+    assert_eq!(buffer.scroll(), 0);
+}
+
+#[test]
+fn a_busy_minute_with_an_error_in_it_is_drawn_in_the_danger_ink() {
+    for id in ThemeId::ALL {
+        let th = Theme::new(id, ColorDepth::TrueColor);
+        let counts = [4u32, 9, 6, 7];
+        let errors = [0u32, 0, 2, 0];
+        let mut buf = Buffer::empty(Rect::new(0, 0, 4, 3));
+        Density::new(&th, &counts, &errors)
+            .span("-5 min", "now")
+            .render(buf.area, &mut buf);
+        let danger = th.ink(Tone::Danger, id.palette().card);
+        let inks: Vec<Option<Color>> = (0..4).map(|x| buf[(x, 0)].style().fg).collect();
+        assert_eq!(
+            inks[2],
+            Some(danger),
+            "{}: the bucket that carries the error wears the danger ink, not {:?}",
+            id.name(),
+            inks[2]
+        );
+        assert!(
+            inks[0] != Some(danger) && inks[3] != Some(danger),
+            "{}: the quiet buckets keep their own ink: {inks:?}",
+            id.name()
+        );
+    }
 }

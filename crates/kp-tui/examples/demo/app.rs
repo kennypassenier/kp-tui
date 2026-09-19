@@ -129,6 +129,8 @@ pub struct App {
     pub palette_sel: usize,
     /// Which stack is in hand in the console's list.
     pub stack_sel: usize,
+    /// Which source the log screen's selector points at; 0 is all of them.
+    pub source_sel: usize,
     pub field_sel: usize,
     pub asking: bool,
     pub variant: usize,
@@ -189,6 +191,7 @@ impl App {
             palette_query: String::from("st"),
             palette_sel: 0,
             stack_sel: 1,
+            source_sel: 0,
             field_sel: 0,
             asking: true,
             variant: 0,
@@ -210,6 +213,16 @@ impl App {
     }
 
     /// The next frame renders in the next theme; nothing else is rebuilt.
+    /// Point the buffer at the source the selector shows, so the bar
+    /// really filters rather than only painting itself [fix-65].
+    pub fn apply_source(&mut self) {
+        let names = crate::logstream::sources();
+        self.stream.select_source(match self.source_sel {
+            0 => None,
+            i => names.get(i).copied(),
+        });
+    }
+
     pub fn cycle_theme(&mut self) {
         self.config.theme = self.config.theme.next();
         self.theme = Theme::new(self.config.theme, self.depth);
@@ -271,6 +284,45 @@ impl App {
                 _ => {}
             }
             return;
+        }
+        // The log screen owns its arrows, its space and its l: every
+        // behaviour homelab's log tab has, and the level filter it does
+        // not [fix-65].
+        if self.screen == Screen::LogStream {
+            let sources = crate::logstream::sources().len();
+            match key.code {
+                KeyCode::Left => {
+                    self.source_sel = (self.source_sel + sources - 1) % sources;
+                    self.apply_source();
+                    return;
+                }
+                KeyCode::Right => {
+                    self.source_sel = (self.source_sel + 1) % sources;
+                    self.apply_source();
+                    return;
+                }
+                KeyCode::Up | KeyCode::Char('k') => {
+                    self.stream.scroll_up(1);
+                    return;
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    self.stream.scroll_down(1);
+                    return;
+                }
+                KeyCode::Char(' ') => {
+                    self.stream.toggle_pause();
+                    return;
+                }
+                KeyCode::Char('l') => {
+                    self.stream.cycle_filter();
+                    return;
+                }
+                KeyCode::Char('G') | KeyCode::End => {
+                    self.stream.follow();
+                    return;
+                }
+                _ => {}
+            }
         }
         match key.code {
             KeyCode::Char('q') | KeyCode::Esc => self.quit = true,
@@ -425,7 +477,7 @@ impl App {
                 frame,
                 &self.theme,
                 &self.stream,
-                self.stack_sel,
+                self.source_sel,
                 self.reveal_ms,
                 self.config.motion,
             );

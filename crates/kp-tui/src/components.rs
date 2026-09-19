@@ -144,6 +144,8 @@ pub struct Field<'a> {
     focused: bool,
     /// Ticks since the caret's clock started; `None` holds it steady.
     blink: Option<u32>,
+    /// The column the value starts at, label and colon included.
+    label_width: Option<usize>,
 }
 
 impl<'a> Field<'a> {
@@ -154,11 +156,19 @@ impl<'a> Field<'a> {
             value,
             focused: false,
             blink: None,
+            label_width: None,
         }
     }
 
     pub fn focused(mut self, focused: bool) -> Self {
         self.focused = focused;
+        self
+    }
+
+    /// Pad the label to this many cells, so a typed row lines its value
+    /// up with the stepped rows above it [fix-64].
+    pub fn label_width(mut self, width: usize) -> Self {
+        self.label_width = Some(width);
         self
     }
 
@@ -209,7 +219,7 @@ impl Field<'_> {
         };
         let mut spans = vec![
             Span::styled(
-                format!("{}{}: ", a.label_prefix, label),
+                pad_label(format!("{}{}: ", a.label_prefix, label), self.label_width),
                 Style::new().fg(t.muted_foreground),
             ),
             Span::styled(self.value.to_string(), Style::new().fg(t.foreground)),
@@ -412,6 +422,39 @@ impl Widget for Stream<'_> {
     }
 }
 
+/// The width a group of labels needs, so every element that follows them
+/// starts in the same column: the longest label, measured the way the
+/// register dresses it. Kenny, round eight: elements begin at fixed
+/// points, never at a point the neighbour's length decides [fix-64].
+pub fn label_column(theme: &Theme, labels: &[&str]) -> usize {
+    let a = theme.a;
+    labels
+        .iter()
+        .map(|l| {
+            let text = if a.uppercase_labels {
+                l.to_uppercase()
+            } else {
+                (*l).to_string()
+            };
+            text.chars().count()
+        })
+        .max()
+        .unwrap_or(0)
+}
+
+/// A label padded to the column its group settled on; a label longer than
+/// the column keeps its length rather than being cut, because a cut name
+/// is worse than a bar one cell late.
+fn pad_label(label: String, width: Option<usize>) -> String {
+    match width {
+        Some(w) if label.chars().count() < w => {
+            let pad = w - label.chars().count();
+            format!("{label}{}", " ".repeat(pad))
+        }
+        _ => label,
+    }
+}
+
 pub struct Meter<'a> {
     theme: &'a Theme,
     label: &'a str,
@@ -421,6 +464,10 @@ pub struct Meter<'a> {
     danger_at: f32,
     /// A sentence written across the bar instead of a percentage beside it.
     across: Option<&'a str>,
+    /// The column the bar starts at, counted from the label's own start.
+    /// `None` lets the label decide, which is only right when there is one
+    /// meter on the screen [fix-64].
+    label_width: Option<usize>,
 }
 
 impl<'a> Meter<'a> {
@@ -432,7 +479,17 @@ impl<'a> Meter<'a> {
             warn_at: 0.7,
             danger_at: 0.9,
             across: None,
+            label_width: None,
         }
+    }
+
+    /// Pad the label to this many cells, so meters stacked above one
+    /// another start their bars in the same column whatever their labels
+    /// are called. `label_column` measures the width a group needs
+    /// [fix-64].
+    pub fn label_width(mut self, width: usize) -> Self {
+        self.label_width = Some(width);
+        self
     }
 
     /// A sentence written across the bar, the way homelab's deploy gauge
@@ -473,11 +530,14 @@ impl Widget for Meter<'_> {
             return;
         }
         let (t, a) = (&self.theme.c, self.theme.a);
-        let label = if a.uppercase_labels {
-            self.label.to_uppercase()
-        } else {
-            self.label.to_string()
-        };
+        let label = pad_label(
+            if a.uppercase_labels {
+                self.label.to_uppercase()
+            } else {
+                self.label.to_string()
+            },
+            self.label_width,
+        );
         if let Some(text) = self.across {
             return self.render_across(text, area, buf);
         }
@@ -686,6 +746,8 @@ pub struct LogPane<'a> {
     /// A live feed says so in the title; a generated one must say that too,
     /// because a demo stream that looks live is a lie a reader acts on.
     live: bool,
+    /// Rows given to the density band above the lines; 0 draws none.
+    band: u16,
 }
 
 impl<'a> LogPane<'a> {
@@ -697,7 +759,17 @@ impl<'a> LogPane<'a> {
             sources: &[],
             selected: 0,
             live: true,
+            band: 0,
         }
+    }
+
+    /// Put a density band over the lines, `rows` cells high (three is the
+    /// least that reads: two of braille and its baseline). Kenny chose
+    /// this out of five log directions in round eight — the burst is seen
+    /// before it is read.
+    pub fn density(mut self, rows: u16) -> Self {
+        self.band = rows;
+        self
     }
 
     /// The sources to offer, and which one is selected.
@@ -799,9 +871,29 @@ impl Widget for LogPane<'_> {
                 .style(ground(self.theme, c.card))
                 .render(bar, buf);
         }
+        // The band, when there is one, sits between the source bar and the
+        // lines: what arrived when, and where the errors were.
+        let band_rows = if self.band >= 3 && inner.height > self.band + 2 {
+            self.band
+        } else {
+            0
+        };
+        if band_rows > 0 {
+            // Two buckets to a cell column: that is what the braille
+            // chart reads, so the band fills the pane from edge to edge.
+            let (counts, errors) = self.buffer.buckets(inner.width as usize * 2);
+            let band = Rect {
+                y: inner.y + bar_rows,
+                height: band_rows,
+                ..inner
+            };
+            Density::new(self.theme, &counts, &errors)
+                .span("oldest", "newest")
+                .render(band, buf);
+        }
         let body = Rect {
-            y: inner.y + bar_rows,
-            height: inner.height - bar_rows,
+            y: inner.y + bar_rows + band_rows,
+            height: inner.height - bar_rows - band_rows,
             width: inner.width.saturating_sub(1),
             ..inner
         };
@@ -809,6 +901,9 @@ impl Widget for LogPane<'_> {
             return;
         }
         let height = body.height as usize;
+        // Fixed columns: every message starts in the same place, whatever
+        // the unit before it is called [fix-64].
+        let (host_w, unit_w) = self.buffer.columns();
         let lines: Vec<Line> = self
             .buffer
             .visible(height)
@@ -820,8 +915,14 @@ impl Widget for LogPane<'_> {
                         format!("{} ", line.time),
                         Style::new().fg(c.muted_foreground),
                     ),
-                    Span::styled(format!("{} ", line.host), Style::new().fg(c.border_strong)),
-                    Span::styled(format!("{} ", line.unit), Style::new().fg(unit_hue)),
+                    Span::styled(
+                        format!("{:<host_w$} ", line.host),
+                        Style::new().fg(c.border_strong),
+                    ),
+                    Span::styled(
+                        format!("{:<unit_w$} ", line.unit),
+                        Style::new().fg(unit_hue),
+                    ),
                     Span::styled(
                         line.severity.tag().to_string(),
                         crate::dashboard::severity_style(self.theme, line.severity),
@@ -1928,6 +2029,132 @@ impl Widget for Spark<'_> {
                 cell.set_style(Style::new().fg(colour).bg(th.c.card));
             }
         }
+    }
+}
+
+/// How much arrived when, above the lines themselves: one column per time
+/// bucket, drawn in braille, with the buckets that carry an error in the
+/// theme's danger ink and a baseline closed the way the register closes a
+/// progress bar.
+///
+/// Kenny chose this over four other log directions in round eight. It
+/// answers a question the rows cannot: you see the burst before you read
+/// it.
+pub struct Density<'a> {
+    theme: &'a Theme,
+    /// Lines per bucket, oldest first.
+    counts: &'a [u32],
+    /// Errors per bucket, same length; a bucket with one takes the danger
+    /// tone for its whole column.
+    errors: &'a [u32],
+    /// What the left and right ends of the band stand for, written under
+    /// the baseline.
+    span: (&'a str, &'a str),
+}
+
+impl<'a> Density<'a> {
+    pub fn new(theme: &'a Theme, counts: &'a [u32], errors: &'a [u32]) -> Self {
+        Density {
+            theme,
+            counts,
+            errors,
+            span: ("", ""),
+        }
+    }
+
+    /// The two ends of the window the band covers, e.g. `("-5 min", "now")`.
+    pub fn span(mut self, from: &'a str, to: &'a str) -> Self {
+        self.span = (from, to);
+        self
+    }
+
+    /// Whether the bucket under column `x` of `width` carries an error.
+    fn hot(&self, x: usize, width: usize) -> bool {
+        if self.errors.is_empty() || width == 0 {
+            return false;
+        }
+        let from = x * self.errors.len() / width;
+        let to = ((x + 1) * self.errors.len() / width).max(from + 1);
+        self.errors[from..to.min(self.errors.len())]
+            .iter()
+            .any(|e| *e > 0)
+    }
+}
+
+impl Widget for Density<'_> {
+    fn render(self, area: Rect, buf: &mut Buffer) {
+        if area.width < 2 || area.height < 2 || self.counts.is_empty() {
+            return;
+        }
+        let th = self.theme;
+        let c = &th.c;
+        // The band, then the baseline it stands on: the axis is a row of
+        // its own so the braille keeps whole cells.
+        let bars = Rect {
+            height: area.height - 1,
+            ..area
+        };
+        let axis = Rect {
+            y: area.y + area.height - 1,
+            height: 1,
+            ..area
+        };
+        let data: Vec<f64> = self.counts.iter().map(|n| *n as f64).collect();
+        let (rows, _) = Spark::new(th, &data).glyphs(bars.width, bars.height);
+        let danger = th.ink(Tone::Danger, th.id.palette().card);
+        // Two registers paint in red by choice (phantom's primary is the
+        // same colour as its danger ink). A band whose busy minute cannot
+        // be told from its broken minute carries no warning at all, so
+        // those registers draw the quiet columns in their muted ink
+        // instead [fix-64].
+        let quiet = if c.primary == danger {
+            c.muted_foreground
+        } else {
+            c.primary
+        };
+        for (y, row) in rows.iter().enumerate() {
+            for (x, glyph) in row.chars().enumerate() {
+                let colour = if self.hot(x, bars.width as usize) {
+                    danger
+                } else {
+                    quiet
+                };
+                let cell = &mut buf[(bars.x + x as u16, bars.y + y as u16)];
+                cell.set_symbol(&glyph.to_string());
+                cell.set_style(Style::new().fg(colour).bg(c.card));
+            }
+        }
+        // The baseline, closed at both ends the way this register closes a
+        // bar, with the window it covers written under it.
+        let ends = th.a.meter.ends();
+        let (open, close) = ends.unwrap_or(("─", "─"));
+        let width = axis.width as usize;
+        let mut line = vec![Span::styled(
+            open.to_string(),
+            Style::new().fg(c.border_strong),
+        )];
+        let inner = width.saturating_sub(2);
+        let (from, to) = self.span;
+        let room = inner.saturating_sub(from.chars().count() + to.chars().count());
+        line.push(Span::styled(
+            from.to_string(),
+            Style::new().fg(c.muted_foreground),
+        ));
+        line.push(Span::styled(
+            "─".repeat(room),
+            Style::new().fg(c.border_strong),
+        ));
+        line.push(Span::styled(
+            to.to_string(),
+            Style::new().fg(c.muted_foreground),
+        ));
+        line.push(Span::styled(
+            close.to_string(),
+            Style::new().fg(c.border_strong),
+        ));
+        Paragraph::new(Line::from(line))
+            .style(ground(th, c.card))
+            .render(axis, buf);
     }
 }
 

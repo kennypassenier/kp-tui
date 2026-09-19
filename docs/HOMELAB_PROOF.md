@@ -366,3 +366,60 @@ it out, so the paragraphs have one home rather than two that drift.
 
 Every one of them still names no colour of its own, and every one is drawn
 with the widgets the five proofs built.
+
+## The five chosen directions, built, 2026-09-19
+
+Kenny picked one direction per screen off the gallery, and two of the five
+answers changed what was built:
+
+| Screen | Chosen | What he added to it |
+| --- | --- | --- |
+| stacks | card grid | the bars of every card share one column [fix-64] |
+| dashboard | sparks behind | — |
+| settings | grouped cards **and** diff | *"kan grouped cards met diff samengaan? laat het zien"* |
+| log stream | density band | *"kijk bij homelab rust welke features het logboek moet hebben … ik wil geen features kwijt geraken"* [fix-65] |
+| deploy | two panes | — |
+
+Every one of them keeps what its screen could do before. The stacks screen
+kept the manifest and the app grid under the cards; the dashboard kept the
+host facts, the stack table and the transfers; settings kept every row the
+arrow keys walk, and gained the host-against-edit table under them; the log
+screen kept the selector, the pause, the anchored scrollback, the jump to
+the tail, the line count and the scrollbar, and its selector now really
+filters; the deploy window kept its transcript, its question, its transfer
+and its gauge.
+
+### What the directions cost, in lines
+
+Counted over the drawing functions alone — the fixtures each screen carries
+are left out, because they are data and not screen:
+
+| Screen | Rebuild | Chosen direction | homelab's own |
+| --- | --- | --- | --- |
+| stacks | 181 | 248 | 186 |
+| dashboard | 251 | 294 | 342 |
+| settings | 121 | 281 | 116 |
+| log stream | 109 | 110 | 139 |
+| deploy | 128 | 162 | 242 |
+| **total** | **790** | **1095** | **1025** |
+
+So the honest reading is the opposite of the first proof's: the rebuilds
+were shorter than homelab because they did less of their own drawing, and
+the chosen directions spend that saving and a little more. Settings is
+where it shows — 121 lines became 281, because the diff is a second view of
+the same data and Kenny asked for both at once. The log screen is where it
+does not: the density band cost one line in the screen, because it is a
+widget (`Density`) that any pane can ask for.
+
+### What the crate gained
+
+| New | What it is |
+| --- | --- |
+| `Density` | the band: buckets by the clock, errors in the danger ink, a baseline closed the way the register closes a bar |
+| `label_column` | the width a group of labels needs, measured once [fix-64] |
+| `Meter::label_width`, `Field::label_width` | take that width |
+| `LogPane::density(rows)` | the band inside the pane's own frame |
+| `LogBuffer::buckets`, `::columns`, `::select_source`, `::source` | what the band and the selector read |
+| `LogLine::at_ms` | a line's own timestamp, back out of the string |
+
+Four tests came with them, and the suite is 61 across the workspace.

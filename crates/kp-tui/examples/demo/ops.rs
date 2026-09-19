@@ -9,6 +9,13 @@
 //! It found one defect and two gaps on the way [fix-2, docs/HOMELAB_PROOF.md];
 //! all three were closed in the crate, so nothing on this screen is marked
 //! `GAP` any more and no colour on it is chosen here.
+//!
+//! Kenny picked **Sparks behind** out of five directions: every reading
+//! carries its own last ten minutes under it, so a number that is high
+//! says whether it has been high all along. The host's own facts, the
+//! stack table and the transfers all stayed where they were — the
+//! direction changes how the numbers read, not what the screen can do
+//! [fix-65]. The four bars share one label column [fix-64].
 
 use kp_tui::{
     Badge, Column, DataTable, Facts, Meter, Spark, Stage, Stream, Theme, Tone, fx::Motion,
@@ -65,20 +72,125 @@ pub const TRANSFERS: [Transfer; 2] = [
     },
 ];
 
+/// The readings the dashboard leads with, each with the ten minutes
+/// behind it. `at` is the reading now; `max` is what a full bar means.
+struct Reading {
+    label: &'static str,
+    value: f32,
+    max: f32,
+    /// What the number is called when it is written out in full.
+    says: String,
+    warn: f32,
+    danger: f32,
+}
+
+/// Ten minutes of history, one sample every three seconds — two to a
+/// cell column, so the strip is full from edge to edge on a wide screen.
+/// A fixture, like every other number here: the live sampler feeds the
+/// dashboard screen, not this one.
+fn behind(seed: f64, level: f64) -> Vec<f64> {
+    (0..200)
+        .map(|i| {
+            let t = i as f64 + seed;
+            (level + (t / 21.0).sin() * level * 0.35 + (t / 7.0).cos() * level * 0.12).max(0.0)
+        })
+        .collect()
+}
+
 pub fn draw(frame: &mut Frame, th: &Theme, selected: usize, reveal_ms: u32, motion: Motion) {
     let screen = frame.area();
     let stage = Stage::new(reveal_ms, motion);
     let [left, right] =
         Layout::horizontal([Constraint::Min(50), Constraint::Length(38)]).areas(screen);
-    let [host, fleet] = Layout::vertical([Constraint::Length(5), Constraint::Min(6)]).areas(left);
-    let [capacity, transfers] =
+    let [readings, fleet] =
+        Layout::vertical([Constraint::Length(14), Constraint::Min(6)]).areas(left);
+    let [host, transfers] =
         Layout::vertical([Constraint::Length(7), Constraint::Min(4)]).areas(right);
-    draw_host(frame, th, host, stage, reveal_ms, motion);
+    draw_readings(frame, th, readings, stage, reveal_ms, motion);
     draw_fleet(frame, th, fleet, selected, stage, reveal_ms, motion);
-    draw_capacity(frame, th, capacity, stage, reveal_ms, motion);
+    draw_host(frame, th, host, stage, reveal_ms, motion);
     draw_transfers(frame, th, transfers, stage, reveal_ms, motion);
 }
 
+/// The four readings, each three rows: the bar with its label and its
+/// number, then the ten minutes behind it.
+fn draw_readings(
+    frame: &mut Frame,
+    th: &Theme,
+    area: Rect,
+    stage: Stage,
+    reveal_ms: u32,
+    motion: Motion,
+) {
+    let panel = Panel::new(th, "Host — now, and the last ten minutes")
+        .focused(true)
+        .stage(stage)
+        .reveal(reveal_ms, motion);
+    let inner = panel.block().inner(area);
+    frame.render_widget(panel, area);
+
+    let used = HOST.ram_used_mb as f32 / HOST.ram_total_mb as f32;
+    let readings = [
+        Reading {
+            label: "load",
+            value: HOST.load1 / HOST.cores as f32,
+            max: HOST.cores as f32,
+            says: format!("{:.2} of {} cores", HOST.load1, HOST.cores),
+            warn: 0.75,
+            danger: 1.0,
+        },
+        Reading {
+            label: "memory",
+            value: used,
+            max: 1.0,
+            says: format!("{} of {} MB", HOST.ram_used_mb, HOST.ram_total_mb),
+            warn: 0.75,
+            danger: 0.9,
+        },
+        Reading {
+            label: "ssd",
+            value: HOST.disk_pct,
+            max: 1.0,
+            says: "root pool".to_string(),
+            warn: 0.8,
+            danger: 0.92,
+        },
+        Reading {
+            label: "network",
+            // A gigabit link, so 125 MB/s is the bar's own full.
+            value: 41.0 / 125.0,
+            max: 125.0,
+            says: "41 MB/s of 125".to_string(),
+            warn: 0.7,
+            danger: 0.9,
+        },
+    ];
+    let labels: Vec<&str> = readings.iter().map(|r| r.label).collect();
+    let column = kp_tui::label_column(th, &labels);
+
+    let rows = Layout::vertical([Constraint::Length(3); 4]).split(inner);
+    for (i, r) in readings.iter().enumerate() {
+        let Some(slot) = rows.get(i) else { break };
+        let [bar, note, strip] = Layout::vertical([Constraint::Length(1); 3]).areas(*slot);
+        Meter::new(th, r.label, r.value)
+            .label_width(column)
+            .thresholds(r.warn, r.danger)
+            .render(bar, frame.buffer_mut());
+        Paragraph::new(Line::from(Span::styled(
+            format!("{:>width$}  {}", "", r.says, width = column),
+            Style::new().fg(th.c.muted_foreground),
+        )))
+        .style(Style::new().bg(th.c.card))
+        .render(note, frame.buffer_mut());
+        Spark::new(th, &behind(i as f64 * 7.0, (r.value * r.max) as f64))
+            .max(r.max as f64)
+            .warn_above(r.warn as f64)
+            .render(strip, frame.buffer_mut());
+    }
+}
+
+/// The host itself: what it is called, the certificate homelab prints,
+/// and the three numbers the capacity panel used to carry.
 fn draw_host(
     frame: &mut Frame,
     th: &Theme,
@@ -88,12 +200,16 @@ fn draw_host(
     motion: Motion,
 ) {
     let panel = Panel::new(th, "Host mesh")
-        .focused(true)
         .stage(stage)
         .reveal(reveal_ms, motion);
     let inner = panel.block().inner(area);
     frame.render_widget(panel, area);
-    let [name, disk, tls] = Layout::vertical([Constraint::Length(1); 3]).areas(inner);
+    let [name, tls, facts] = Layout::vertical([
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Min(1),
+    ])
+    .areas(inner);
 
     let mut spans = vec![
         Badge::dot(th, true),
@@ -111,11 +227,6 @@ fn draw_host(
         .style(Style::new().bg(th.c.card))
         .render(name, frame.buffer_mut());
 
-    // homelab draws this bar by hand out of block characters; the Meter is
-    // the same bar with the theme's own thresholds, and it fills in
-    // eighths of a cell.
-    frame.render_widget(Meter::new(th, "ssd", HOST.disk_pct), disk);
-
     Paragraph::new(Line::from(vec![
         Span::styled("tls ", Style::new().fg(th.c.muted_foreground)),
         Span::styled(
@@ -130,37 +241,14 @@ fn draw_host(
     ]))
     .style(Style::new().bg(th.c.card))
     .render(tls, frame.buffer_mut());
-}
-
-fn draw_capacity(
-    frame: &mut Frame,
-    th: &Theme,
-    area: Rect,
-    stage: Stage,
-    reveal_ms: u32,
-    motion: Motion,
-) {
-    let panel = Panel::new(th, "Capacity")
-        .stage(stage)
-        .reveal(reveal_ms, motion);
-    let inner = panel.block().inner(area);
-    frame.render_widget(panel, area);
-    let [ram, facts, load] = Layout::vertical([
-        Constraint::Length(1),
-        Constraint::Length(3),
-        Constraint::Min(1),
-    ])
-    .areas(inner);
 
     let used = HOST.ram_used_mb as f32 / HOST.ram_total_mb as f32;
-    frame.render_widget(Meter::new(th, "ram", used).thresholds(0.75, 0.9), ram);
-
     let free = HOST.ram_total_mb - HOST.ram_used_mb;
     let over = HOST.ram_committed_mb as f32 / HOST.ram_total_mb as f32;
     let rows = [
         (
             "free",
-            format!("{} MB", free),
+            format!("{free} MB"),
             if used > 0.9 {
                 Tone::Danger
             } else {
@@ -168,29 +256,12 @@ fn draw_capacity(
             },
         ),
         ("alloc", format!("{:.0}%", over * 100.0), Tone::Warning),
-        (
-            "load",
-            format!("{:.2} of {}", HOST.load1, HOST.cores),
-            if HOST.load1 > HOST.cores as f32 {
-                Tone::Danger
-            } else {
-                Tone::Success
-            },
-        ),
         ("cores", HOST.cores.to_string(), Tone::Ink),
+        ("uptime", "19 d".to_string(), Tone::Ink),
     ];
     Facts::new(th, &rows)
         .columns(2)
         .render(facts, frame.buffer_mut());
-
-    // The load of the last quarter hour, four levels to the row.
-    let history: Vec<f64> = (0..36)
-        .map(|i| 2.6 + ((i as f64) / 5.0).sin() * 1.4 + (i as f64) * 0.02)
-        .collect();
-    Spark::new(th, &history)
-        .max(HOST.cores as f64)
-        .warn_above(0.75)
-        .render(load, frame.buffer_mut());
 }
 
 fn draw_fleet(

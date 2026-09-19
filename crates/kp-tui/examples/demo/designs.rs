@@ -342,12 +342,17 @@ fn split_preview(frame: &mut Frame, th: &Theme, area: Rect, stage: Stage, ms: u3
     .columns(2)
     .render(facts, frame.buffer_mut());
     let rows = Layout::vertical([Constraint::Length(1); 3]).split(bars);
+    // One column for all three bars: "memory" may not push its own bar
+    // further right than "cpu" pushes its [fix-64].
+    let column = kp_tui::label_column(th, &["cpu", "memory", "disk"]);
     for (i, (label, value)) in [("cpu", 0.22f32), ("memory", 0.64), ("disk", 0.41)]
         .into_iter()
         .enumerate()
     {
         if let Some(r) = rows.get(i) {
-            Meter::new(th, label, value).render(*r, frame.buffer_mut());
+            Meter::new(th, label, value)
+                .label_width(column)
+                .render(*r, frame.buffer_mut());
         }
     }
 }
@@ -393,16 +398,22 @@ fn command_first(frame: &mut Frame, th: &Theme, area: Rect, stage: Stage, ms: u3
         .focused(true)
         .blink(ms / 16)
         .render(fi, frame.buffer_mut());
+    // The stack name is a column of its own, so every `·` stands under
+    // the one above it [fix-64].
     let commands = [
-        "web · restart the stack",
-        "web · redeploy from the manifest",
-        "web · open the log",
-        "media · restart the stack",
+        ("web", "restart the stack"),
+        ("web", "redeploy from the manifest"),
+        ("web", "open the log"),
+        ("media", "restart the stack"),
     ];
+    let column = kp_tui::label_column(th, &["web", "media"]);
     let lp = panel(th, "3 matches", stage, ms, motion);
     let li = lp.block().inner(list);
     frame.render_widget(lp, list);
-    let matched: Vec<Line<'static>> = commands.iter().map(|c| Line::from(c.to_string())).collect();
+    let matched: Vec<Line<'static>> = commands
+        .iter()
+        .map(|(stack, what)| Line::from(format!("{stack:<column$} · {what}")))
+        .collect();
     SelectList::new(th, &matched, 0).render(li, frame.buffer_mut());
 }
 
