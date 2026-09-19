@@ -1,6 +1,7 @@
-//! `kp-tui-demo [--screen dashboard|components|console|effects|fleet|ops|settings|logs|deploy] [--theme NAME]
+//! `kp-tui-demo [--screen dashboard|…|deploy|design --variant N] [--theme NAME]
 //!  [--colors truecolor|256|16] [--reduced-motion] [--config PATH] [--fps N]
 //!  [--synthetic-logs] [--exit-after SECONDS] [--shot] [--at MS] [--size WxH]
+//!  [--variant N] [--designs]
 //!  [--keys CHARS]`
 //!
 //! `--exit-after` is for measuring: the demo quits by itself and prints its
@@ -21,6 +22,7 @@ use crossterm::{cursor::SetCursorStyle, event, execute};
 mod app;
 mod config;
 mod deploy;
+mod designs;
 mod fleet;
 mod logstream;
 mod ops;
@@ -80,8 +82,18 @@ fn main() -> io::Result<()> {
         Some("settings") => Screen::Settings,
         Some("logs") => Screen::LogStream,
         Some("deploy") => Screen::Deploy,
+        Some("design") => Screen::Design,
         _ => Screen::Dashboard,
     };
+    app.variant = arg("--variant").and_then(|v| v.parse().ok()).unwrap_or(0);
+    // `--designs` prints the table of directions, one per line, so a tool
+    // that lays them out on a page does not have to hold a copy of it.
+    if flag("--designs") {
+        for (n, d) in designs::DESIGNS.iter().enumerate() {
+            println!("{n}\t{}\t{}\t{}", d.screen, d.name, d.idea);
+        }
+        return Ok(());
+    }
     if flag("--shot") {
         let size = arg("--size")
             .and_then(|v| {

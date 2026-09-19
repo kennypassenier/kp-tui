@@ -80,6 +80,9 @@ fn main() -> std::io::Result<()> {
         .and_then(|(w, h)| Some((w.parse().ok()?, h.parse().ok()?)))
         .unwrap_or((104u16, 28u16));
 
+    if args.iter().any(|a| a == "--designs") {
+        return designs(&theme, cols, rows, &out);
+    }
     let mut sections = String::new();
     for pair in &PAIRS {
         let left = in_pty(&homelab, &["tui", "--offline"], pair.keys, cols, rows);
@@ -94,6 +97,129 @@ fn main() -> std::io::Result<()> {
     std::fs::write(&out, page(&sections, &theme))?;
     println!("{out}: {} pair(s) at {cols}x{rows}", PAIRS.len());
     Ok(())
+}
+
+/// The twenty-five design directions, each as a picture with its paragraph.
+///
+/// The demo owns the table; this asks for it (`--designs`) rather than
+/// keeping a second copy that could drift from it.
+fn designs(theme: &str, cols: u16, rows: u16, out: &str) -> std::io::Result<()> {
+    let listed = Command::new("cargo")
+        .args(["run", "--quiet", "--example", "demo", "--", "--designs"])
+        .output()?
+        .stdout;
+    let listed = String::from_utf8_lossy(&listed).to_string();
+    let mut sections = String::new();
+    let mut screen_now = String::new();
+    let mut count = 0;
+    for line in listed.lines() {
+        let mut parts = line.splitn(4, '\t');
+        let (Some(n), Some(screen), Some(name), Some(idea)) =
+            (parts.next(), parts.next(), parts.next(), parts.next())
+        else {
+            continue;
+        };
+        if screen != screen_now {
+            sections.push_str(&format!("\n<h2>{}</h2>", heading(screen)));
+            screen_now = screen.to_string();
+        }
+        let shot = shot_at(
+            &["--screen", "design", "--variant", n],
+            theme,
+            cols,
+            rows,
+            "2600",
+        );
+        sections.push_str(&format!(
+            "\n<section class=\"design\">\n  <h3>{}. {}</h3>\n  <p class=\"idea\">{}</p>\n  {}\n</section>",
+            count + 1,
+            name,
+            idea,
+            shot
+        ));
+        count += 1;
+    }
+    std::fs::write(out, designs_page(&sections, theme))?;
+    println!("{out}: {count} design(s) at {cols}x{rows}");
+    Ok(())
+}
+
+fn heading(screen: &str) -> &'static str {
+    match screen {
+        "stacks" => "De stacks",
+        "dashboard" => "Het dashboard",
+        "settings" => "De instellingen",
+        "logs" => "Het logboek",
+        _ => "Het deploy-venster",
+    }
+}
+
+fn designs_page(sections: &str, theme: &str) -> String {
+    format!(
+        r#"<!doctype html><meta charset="utf-8"><title>Vijf ontwerpen per scherm</title>
+<style>
+ body {{ background:#0b0f12; color:#d0d0d0; font-family:"Adwaita Sans",system-ui,sans-serif; margin:0; padding:24px 16px 48px }}
+ h1 {{ font-weight:500; font-size:22px; margin:0 0 4px }}
+ h2 {{ font-weight:500; font-size:18px; margin:40px 0 4px; color:#e6e6e6; border-bottom:1px solid #1d262c; padding-bottom:6px }}
+ h3 {{ font-weight:500; font-size:15px; margin:22px 0 6px; color:#e6e6e6 }}
+ p.lead, p.idea {{ color:#9aa4ad; max-width:78ch; line-height:1.65; margin:0 0 10px }}
+ pre.shot {{ font-family:"FiraCode Nerd Font Mono","Adwaita Mono","DejaVu Sans Mono",monospace;
+   font-size:12px; line-height:1.15; margin:0; padding:10px; border:1px solid #1d262c; border-radius:8px;
+   overflow-x:auto; white-space:pre; background:#0b0f12; width:max-content; max-width:100% }}
+</style>
+<h1>Vijf ontwerpen per scherm, vijfentwintig in totaal</h1>
+<p class="lead">Elk beeld is een richting, geen scherm: het toont het idee op de maat die het idee nodig heeft,
+met de voorbeelden van de herbouw ernaast. Niets hiervan zit aan een toets — dat is de bedoeling, want een
+richting die je niet kiest heeft dan maar één tekenfunctie gekost. Alles in thema {theme}; geen van deze
+beelden noemt zelf een kleur.</p>
+{sections}
+"#
+    )
+}
+
+/// One shot of the demo, replayed through the emulator.
+fn shot_of(extra: &[&str], theme: &str, cols: u16, rows: u16) -> String {
+    shot_at(extra, theme, cols, rows, "1200")
+}
+
+/// The same, at a chosen moment of the screen's own motion. A design
+/// picture is taken later than a comparison shot: at 1200 ms a register
+/// that deciphers its titles is still deciphering one, and a picture meant
+/// to be judged should not be caught mid-word.
+fn shot_at(extra: &[&str], theme: &str, cols: u16, rows: u16, at: &str) -> String {
+    let size = format!("{cols}x{rows}");
+    let mut args: Vec<&str> = vec!["run", "--quiet", "--example", "demo", "--"];
+    args.extend_from_slice(extra);
+    args.extend_from_slice(&[
+        "--shot",
+        "--at",
+        at,
+        "--size",
+        &size,
+        "--colors",
+        "truecolor",
+        "--theme",
+        theme,
+    ]);
+    let out = Command::new("cargo")
+        .args(&args)
+        .output()
+        .expect("the demo runs")
+        .stdout;
+    let body = out.splitn(2, |b| *b == b'\n').nth(1).unwrap_or(&[]);
+    let mut fed = Vec::with_capacity(body.len() + rows as usize);
+    for byte in body.iter().copied() {
+        if byte == b'\n' {
+            fed.push(b'\r');
+        }
+        fed.push(byte);
+    }
+    while fed.ends_with(b"\n") || fed.ends_with(b"\r") {
+        fed.pop();
+    }
+    let mut parser = vt100::Parser::new(rows, cols, 0);
+    parser.process(&fed);
+    html(parser.screen(), cols, rows)
 }
 
 /// Run a full-screen program in a pseudo-terminal, press `keys`, and read
@@ -166,45 +292,7 @@ fn in_pty(program: &str, args: &[&str], keys: &str, cols: u16, rows: u16) -> Str
 /// The demo's one-frame shot of a screen, replayed through the same
 /// emulator so both columns are read the same way.
 fn from_shot(screen: &str, theme: &str, cols: u16, rows: u16) -> String {
-    let out = Command::new("cargo")
-        .args([
-            "run",
-            "--quiet",
-            "--example",
-            "demo",
-            "--",
-            "--screen",
-            screen,
-            "--shot",
-            "--at",
-            "1200",
-            "--size",
-            &format!("{cols}x{rows}"),
-            "--colors",
-            "truecolor",
-            "--theme",
-            theme,
-        ])
-        .output()
-        .expect("the demo runs")
-        .stdout;
-    // The shot names its theme on the first line, and writes a bare newline
-    // between rows: a line feed is not a carriage return, so the rows are
-    // fed with both or every row lands where the last one ended.
-    let body = out.splitn(2, |b| *b == b'\n').nth(1).unwrap_or(&[]);
-    let mut fed = Vec::with_capacity(body.len() + rows as usize);
-    for byte in body.iter().copied() {
-        if byte == b'\n' {
-            fed.push(b'\r');
-        }
-        fed.push(byte);
-    }
-    while fed.ends_with(b"\n") || fed.ends_with(b"\r") {
-        fed.pop();
-    }
-    let mut parser = vt100::Parser::new(rows, cols, 0);
-    parser.process(&fed);
-    html(parser.screen(), cols, rows)
+    shot_of(&["--screen", screen], theme, cols, rows)
 }
 
 /// A screen as one `<pre>`, a span per run of equal styling.

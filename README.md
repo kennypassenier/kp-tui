@@ -82,3 +82,8 @@ The demo draws nine screens — `dashboard`, `components`, `console`,
 five are homelab's own screens rebuilt on nothing but this crate, measured
 and put side by side with homelab's client in
 [docs/HOMELAB_PROOF.md](docs/HOMELAB_PROOF.md).
+
+Beside them are twenty-five design directions, five per rebuilt screen:
+`--screen design --variant N` for one, and
+`cargo run -p kp-compare -- --designs` for the whole gallery with the
+paragraph that belongs to each.

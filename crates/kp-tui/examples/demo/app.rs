@@ -93,6 +93,9 @@ pub enum Screen {
     /// homelab's own deploy window, rebuilt on this crate — the fifth
     /// proof, and the only one that is an overlay [docs/HOMELAB_PROOF.md].
     Deploy,
+    /// One of the twenty-five design directions, five per rebuilt screen
+    /// [examples/demo/designs.rs]. A picture, not a screen.
+    Design,
 }
 
 pub struct App {
@@ -128,6 +131,7 @@ pub struct App {
     pub stack_sel: usize,
     pub field_sel: usize,
     pub asking: bool,
+    pub variant: usize,
     pub stream: kp_tui::logs::LogBuffer,
     /// Which step of the wizard the breadcrumb shows.
     pub step: usize,
@@ -187,6 +191,7 @@ impl App {
             stack_sel: 1,
             field_sel: 0,
             asking: true,
+            variant: 0,
             stream: crate::logstream::feed(),
             step: 2,
             config_path,
@@ -310,6 +315,7 @@ impl App {
                     Screen::Settings => Screen::LogStream,
                     Screen::LogStream => Screen::Deploy,
                     Screen::Deploy => Screen::Dashboard,
+                    Screen::Design => Screen::Dashboard,
                 };
                 self.reveal_ms = 0;
             }
@@ -420,6 +426,17 @@ impl App {
                 &self.theme,
                 &self.stream,
                 self.stack_sel,
+                self.reveal_ms,
+                self.config.motion,
+            );
+            return;
+        }
+        if self.screen == Screen::Design {
+            frame.render_widget(Block::new().style(self.theme.base()), frame.area());
+            crate::designs::draw(
+                frame,
+                &self.theme,
+                self.variant,
                 self.reveal_ms,
                 self.config.motion,
             );

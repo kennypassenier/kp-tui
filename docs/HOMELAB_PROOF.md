@@ -335,3 +335,34 @@ whichever way the screen goes — settings is longer, the log stream is a
 sixth — and that was never the argument. The argument is the last column:
 five screens that lean on five different things, and nothing left in any
 of them that names a colour.
+
+
+## Five directions per screen, 2026-09-19
+
+The rebuilds answer "can this crate carry homelab's screens". Kenny then
+asked the next question: *"ik heb het idee dat we de UI nog naar een hoger
+niveau kunnen tillen. Het kan nog cooler/moderner zijn. Dus ik verwacht van
+elk scherm vijf ontwerpen waarin je nieuwe/modernere/coolere features of
+aanpakken toont om zo een scherm aan te pakken."* He chose the shape as
+well: five pictures per screen, a paragraph each, and the one he picks gets
+built.
+
+```sh
+cargo run -p kp-compare -- --designs --theme cyberpunk --size 96x14 --out ontwerpen.html
+```
+
+The twenty-five live in `crates/kp-tui/examples/demo/designs.rs`, one draw
+function each, and none is wired to a key — a direction nobody chooses cost
+one function. The demo prints the table (`--designs`) and `kp-compare` lays
+it out, so the paragraphs have one home rather than two that drift.
+
+| Screen | The five |
+| --- | --- |
+| stacks | card grid · deploy rail · split preview · tile wall · command first |
+| dashboard | HUD corners · sparks behind · big figures · rings · alarms first |
+| settings | two columns · live preview · grouped cards · diff · one at a time |
+| log stream | density band · grouped sources · severity focus · time gutter · stream and detail |
+| deploy | step rail · two panes · gate cards · full status · docked bar |
+
+Every one of them still names no colour of its own, and every one is drawn
+with the widgets the five proofs built.
