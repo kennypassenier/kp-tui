@@ -26,6 +26,8 @@ the same mechanic with the theme holding the knobs.
 | `spinner(tick)` — ten braille frames | `effects::Spinner` (`Fx::spinner`) | Braille, quadrant, half-block, bar or ASCII, per theme, at the 900 ms `--kp-spinner-duration` |
 | `progress_marks(tick, width)` — a mark marching along the row for a transfer of unknown size | `components::Stream` | The package's own answer at `gap-11`: an indeterminate bar is not a full one, so the muted track wears the accent as diagonal stripes that drift with no change of light [DI5]. The diagonal is `╱`, or `/` in the two registers whose spinner is plain ASCII; the stripe repeats every four cells and `kp-progress-stripes 1200ms` moves one stripe, so 300 ms a cell |
 | `braille_spark(data, width)` | already `dashboard`'s own chart | — |
+| `◂ value ▸` written inline in the settings tab, with a hand-picked cyan on the row in hand | `components::Choice` | The marks are the package's own `var(--kp-glyph-closed, '▸')` and its mirror — no register overrides that token, measured across all 22 registers. What is per-theme is the plate the value in hand wears, and that is `Selection`, the same one a list row stands on |
+| `●` drawn by hand beside a state word | `Badge::state` | The tone is the caller's, the ink is the theme's: `Theme::ink` picks one that reads on the card it sits on [fix-1] |
 | `load_color(pct)` | already `Meter::thresholds` | `--success`, `--warning`, `--destructive` |
 
 Two homelab effects were already here before this step (`decrypt`,

@@ -5,9 +5,9 @@
 //! this crate's.
 
 use kp_tui::{
-    AlarmPanel, Badge, ColorDepth, Column, CommandPalette, DataTable, Facts, Field, KeyHints,
-    LogPane, Meter, Popup, PopupKind, SelectList, Spark, Stepper, Stream, Surface, Theme, ThemeId,
-    Ticker, Tone,
+    AlarmPanel, Badge, Choice, ColorDepth, Column, CommandPalette, DataTable, Facts, Field,
+    KeyHints, LogPane, Meter, Popup, PopupKind, SelectList, Spark, Stepper, Stream, Surface, Theme,
+    ThemeId, Ticker, Tone,
     anatomy::Reveal,
     color::Rgb,
     dashboard::rate,
@@ -1593,4 +1593,52 @@ fn an_indeterminate_stream_drifts_without_changing_its_light() {
     let term = Theme::new(ThemeId::TERMINAL, ColorDepth::TrueColor);
     assert_eq!(Stream::new(&term, 0, Motion::Full).mark(), "/");
     assert_eq!(Stream::new(&th, 0, Motion::Full).mark(), "╱");
+}
+
+/// A value that is stepped through wears the theme's own selection plate
+/// while it is the one in hand, and the marks either side are the
+/// package's own — `var(--kp-glyph-closed, '▸')` and its mirror, the same
+/// in all twenty-two because no register overrides that token.
+#[test]
+fn a_stepped_value_wears_the_register_s_own_selection() {
+    for id in ThemeId::ALL {
+        let th = Theme::new(id, ColorDepth::TrueColor);
+        let draw = |focused| {
+            let mut buf = Buffer::empty(Rect::new(0, 0, 24, 1));
+            Choice::new(&th, "hour", "03:00")
+                .focused(focused)
+                .render(buf.area, &mut buf);
+            buf
+        };
+        let (rest, hand) = (draw(false), draw(true));
+        let row: String = (0..24).map(|x| rest[(x, 0)].symbol().to_string()).collect();
+        assert!(row.contains("◂ 03:00 ▸"), "{}: {row:?}", id.name());
+
+        // The value in hand is told apart from the value at rest, by a
+        // plate or by a weight — every register does one or the other.
+        let at = 16;
+        assert_eq!(hand[(at, 0)].symbol(), rest[(at, 0)].symbol());
+        let moved = hand[(at, 0)].bg != rest[(at, 0)].bg
+            || hand[(at, 0)].fg != rest[(at, 0)].fg
+            || hand[(at, 0)].modifier != rest[(at, 0)].modifier;
+        assert!(moved, "{}: the value in hand looks the same", id.name());
+    }
+}
+
+/// A state dot says which state, not only whether. `Badge::dot` knows up
+/// from down; the settings screen needed a warning beside "unsaved
+/// changes" and drew it green until `Badge::state` existed.
+#[test]
+fn a_state_dot_carries_the_tone_the_state_deserves() {
+    let th = Theme::new(ThemeId::FORMAL, ColorDepth::TrueColor);
+    let p = ThemeId::FORMAL.palette();
+    let warn = Badge::state(&th, Tone::Warning);
+    assert_eq!(warn.content.as_ref(), "●");
+    assert_eq!(warn.style.fg, Some(th.ink(Tone::Warning, p.card)));
+    // The old two-valued dot is the same dot in the success tone.
+    assert_eq!(
+        Badge::dot(&th, true).style.fg,
+        Badge::state(&th, Tone::Success).style.fg
+    );
+    assert_ne!(warn.style.fg, Badge::dot(&th, true).style.fg);
 }

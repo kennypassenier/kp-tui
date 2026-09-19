@@ -84,6 +84,9 @@ pub enum Screen {
     /// homelab's own dashboard, rebuilt on this crate — the second proof
     /// [docs/HOMELAB_PROOF.md].
     Ops,
+    /// homelab's own settings tab, rebuilt on this crate — the third proof
+    /// [docs/HOMELAB_PROOF.md].
+    Settings,
 }
 
 pub struct App {
@@ -117,6 +120,7 @@ pub struct App {
     pub palette_sel: usize,
     /// Which stack is in hand in the console's list.
     pub stack_sel: usize,
+    pub field_sel: usize,
     /// Which step of the wizard the breadcrumb shows.
     pub step: usize,
     pub config_path: Option<PathBuf>,
@@ -173,6 +177,7 @@ impl App {
             palette_query: String::from("st"),
             palette_sel: 0,
             stack_sel: 1,
+            field_sel: 0,
             step: 2,
             config_path,
             message: String::new(),
@@ -263,6 +268,13 @@ impl App {
                 self.palette_open = true;
                 self.palette_sel = 0;
             }
+            KeyCode::Down | KeyCode::Char('j') if self.screen == Screen::Settings => {
+                self.field_sel = (self.field_sel + 1) % crate::settings::ROWS;
+            }
+            KeyCode::Up | KeyCode::Char('k') if self.screen == Screen::Settings => {
+                self.field_sel =
+                    (self.field_sel + crate::settings::ROWS - 1) % crate::settings::ROWS;
+            }
             KeyCode::Down | KeyCode::Char('j')
                 if matches!(self.screen, Screen::Fleet | Screen::Ops) =>
             {
@@ -284,7 +296,8 @@ impl App {
                     Screen::Console => Screen::Effects,
                     Screen::Effects => Screen::Fleet,
                     Screen::Fleet => Screen::Ops,
-                    Screen::Ops => Screen::Dashboard,
+                    Screen::Ops => Screen::Settings,
+                    Screen::Settings => Screen::Dashboard,
                 };
                 self.reveal_ms = 0;
             }
@@ -372,6 +385,17 @@ impl App {
                 frame,
                 &self.theme,
                 self.stack_sel,
+                self.reveal_ms,
+                self.config.motion,
+            );
+            return;
+        }
+        if self.screen == Screen::Settings {
+            frame.render_widget(Block::new().style(self.theme.base()), frame.area());
+            crate::settings::draw(
+                frame,
+                &self.theme,
+                self.field_sel,
                 self.reveal_ms,
                 self.config.motion,
             );

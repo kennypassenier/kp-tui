@@ -1,4 +1,4 @@
-//! `kp-tui-demo [--screen dashboard|components|console|effects|fleet|ops] [--theme NAME]
+//! `kp-tui-demo [--screen dashboard|components|console|effects|fleet|ops|settings] [--theme NAME]
 //!  [--colors truecolor|256|16] [--reduced-motion] [--config PATH] [--fps N]
 //!  [--synthetic-logs] [--exit-after SECONDS] [--shot] [--at MS] [--size WxH]
 //!  [--keys CHARS]`
@@ -22,6 +22,7 @@ mod app;
 mod config;
 mod fleet;
 mod ops;
+mod settings;
 
 use app::{App, Screen};
 mod shot;
@@ -74,6 +75,7 @@ fn main() -> io::Result<()> {
         Some("effects") => Screen::Effects,
         Some("fleet") => Screen::Fleet,
         Some("ops") => Screen::Ops,
+        Some("settings") => Screen::Settings,
         _ => Screen::Dashboard,
     };
     if flag("--shot") {

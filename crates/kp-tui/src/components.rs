@@ -193,8 +193,14 @@ impl<'a> Field<'a> {
     }
 }
 
-impl Widget for Field<'_> {
-    fn render(self, area: Rect, buf: &mut Buffer) {
+impl Field<'_> {
+    /// The label, the value and the caret as spans, so a caller can put the
+    /// field inside a line of its own making — the way `Badge::spans` and
+    /// `Choice::value_spans` do. The third proof asked for it
+    /// [docs/HOMELAB_PROOF.md]: a settings screen is a list of rows, and one
+    /// row being a widget while the rest are lines cost the caller a little
+    /// machine of its own to tell the two apart.
+    pub fn spans(&self) -> Vec<Span<'static>> {
         let (t, a) = (&self.theme.c, self.theme.a);
         let label = if a.uppercase_labels {
             self.label.to_uppercase()
@@ -211,13 +217,104 @@ impl Widget for Field<'_> {
         if self.focused && self.caret_on() {
             spans.push(Span::styled(self.caret(), Style::new().fg(t.ring)));
         }
+        spans
+    }
+}
+
+impl Widget for Field<'_> {
+    fn render(self, area: Rect, buf: &mut Buffer) {
+        let t = &self.theme.c;
         let style = if self.focused {
             Style::new().bg(t.card)
         } else {
             Style::new().bg(t.background)
         };
-        Paragraph::new(Line::from(spans))
+        Paragraph::new(Line::from(self.spans()))
             .style(style)
+            .render(area, buf);
+    }
+}
+
+/// A setting whose value is stepped through rather than typed: the value
+/// between two marks, on the theme's own selection plate while it is the
+/// one in hand.
+///
+/// The gap the third proof found [docs/HOMELAB_PROOF.md]. homelab's
+/// settings tab writes `◂ 03:00 ▸` with a hand-picked cyan and a REVERSED
+/// modifier on the row in hand — `Field` is for a value that is typed and
+/// `SelectList` for a row that is chosen, and neither is this.
+///
+/// The marks are the package's own, not invented: `css/components.css`
+/// writes a collapsed disclosure as `var(--kp-glyph-closed, '▸')`, and no
+/// register overrides it — measured with
+/// `grep -rn "kp-glyph-closed" css/*-register.css`, which finds none. So
+/// the mark that says "there is more this way" is `▸` in all twenty-two,
+/// and `◂` is its mirror. What is per-theme is the plate the value wears
+/// while it is in hand, and that is `Selection`, the same one a list row
+/// stands on.
+pub struct Choice<'a> {
+    theme: &'a Theme,
+    label: &'a str,
+    value: &'a str,
+    focused: bool,
+}
+
+impl<'a> Choice<'a> {
+    pub fn new(theme: &'a Theme, label: &'a str, value: &'a str) -> Self {
+        Choice {
+            theme,
+            label,
+            value,
+            focused: false,
+        }
+    }
+
+    pub fn focused(mut self, focused: bool) -> Self {
+        self.focused = focused;
+        self
+    }
+
+    /// The marks either side of the value: the package's own, mirrored.
+    pub const MARKS: (&'static str, &'static str) = ("◂ ", " ▸");
+
+    /// Just the stepped value, for a caller putting it in a row of its own
+    /// making — a tier with two of them side by side, say.
+    pub fn value_spans(&self) -> Vec<Span<'static>> {
+        let th = self.theme;
+        let style = if self.focused {
+            th.selected_style()
+        } else {
+            Style::new().fg(th.c.card_foreground).bg(th.c.card)
+        };
+        vec![
+            Span::styled(Self::MARKS.0, style),
+            Span::styled(self.value.to_string(), style),
+            Span::styled(Self::MARKS.1, style),
+        ]
+    }
+
+    /// The label, padded to `width`, in the register's own label dress.
+    pub fn label_spans(&self, width: usize) -> Vec<Span<'static>> {
+        let (t, a) = (&self.theme.c, self.theme.a);
+        let label = if a.uppercase_labels {
+            self.label.to_uppercase()
+        } else {
+            self.label.to_string()
+        };
+        let text = format!("{}{label}", a.label_prefix);
+        let pad = width.saturating_sub(text.chars().count());
+        vec![Span::styled(
+            format!("{text}{}", " ".repeat(pad)),
+            Style::new().fg(t.muted_foreground),
+        )]
+    }
+}
+
+impl Widget for Choice<'_> {
+    fn render(self, area: Rect, buf: &mut Buffer) {
+        let line = Line::from([self.label_spans(14), self.value_spans()].concat());
+        Paragraph::new(line)
+            .style(Style::new().bg(self.theme.c.card))
             .render(area, buf);
     }
 }
@@ -1473,13 +1570,24 @@ impl<'a> Badge<'a> {
     /// name is read as part of the name.
     pub fn dot(theme: &Theme, up: bool) -> Span<'static> {
         if up {
-            Span::styled(
-                "●",
-                Style::new().fg(theme.ink(Tone::Success, theme.id.palette().card)),
-            )
+            Self::state(theme, Tone::Success)
         } else {
             Span::styled("○", Style::new().fg(theme.c.muted_foreground))
         }
+    }
+
+    /// The same dot in whatever tone the state deserves, in an ink that can
+    /// be read on the card it sits on.
+    ///
+    /// The third proof found `dot` two-valued [docs/HOMELAB_PROOF.md]: the
+    /// settings screen says "unsaved changes" in the warning tone, and a
+    /// dot that only knows up from down drew it green beside an orange
+    /// word.
+    pub fn state(theme: &Theme, tone: Tone) -> Span<'static> {
+        Span::styled(
+            "●",
+            Style::new().fg(theme.ink(tone, theme.id.palette().card)),
+        )
     }
 
     /// The chip as spans, so it sits inside a line beside other text.

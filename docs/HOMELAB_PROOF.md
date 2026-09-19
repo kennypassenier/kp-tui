@@ -163,3 +163,86 @@ still under reduced motion.
 That is the second proof's real finding: the first screen's three gaps were
 widgets the crate lacked, and this screen's three were a defect, a trap and
 a value that already existed on the web and had never been carried over.
+
+## The third screen, 2026-09-19
+
+Two screens agreeing is a pattern; the third is where you find out whether
+the pattern was the crate or the kind of screen. So the one that leans on
+nothing the first two leaned on was picked: homelab's settings tab,
+`client/src/tui/view/settings.rs` — no table, no meter, no panel grid, but
+fields, values that step, help text under every setting, one inline text
+edit and a dirty marker.
+
+```sh
+cargo run --example demo -- --screen settings --theme cyberpunk
+```
+
+| | homelab's `settings.rs` | the rebuild |
+| --- | --- | --- |
+| Drawing code, non-blank lines | 98 | 112 |
+| Of those, comments | 3 | 9 |
+| So: code | 95 | 103 |
+| Lines of hand-chosen style | — | 0 |
+| References to a theme constant | 17 `THEME.*` | 0 |
+| Themes it renders in | 1 | 22 |
+
+**Level, not shorter — eight lines longer**, and that is the finding worth
+having. The first rebuild was six lines longer because three widgets did
+not exist; this one is eight longer with nothing missing. A screen that is
+mostly prose, blank rows and help text has little for a widget to absorb:
+what the crate replaces is the styling, not the laying out. The two
+counts are not quite like for like either — the rebuild draws its own key
+hints, where homelab's live in `mod.rs` nine lines away from this file, and
+the rebuild's help lines run wider.
+
+What it buys is the same thing every time: 17 theme constants to 0, and one
+theme to twenty-two.
+
+### What it found
+
+Three things, all closed, because Kenny's answer on the previous form asked
+for the screen and the closing in one step.
+
+**1 · A value that steps had no widget.** homelab writes `◂ 03:00 ▸` with a
+hand-picked cyan and a `REVERSED` modifier on the row in hand. `Field` is
+for a value that is typed and `SelectList` for a row that is chosen, and
+this is neither. `Choice` is that value: the marks either side, and the
+theme's own `Selection` — the plate a list row stands on — while it is in
+hand.
+
+The marks are not invented. `css/components.css` writes a collapsed
+disclosure as `var(--kp-glyph-closed, '▸')`, and **no register overrides
+that token** — measured with `grep -rn "kp-glyph-closed" css/*-register.css`,
+which finds none — so the mark that says "there is more this way" is `▸` in
+all twenty-two, and `◂` is its mirror. What is per-theme is the plate, and
+that already had an answer. `a_stepped_value_wears_the_register_s_own_selection`
+walks all 22 and fails where a value in hand looks the same as one at rest.
+
+**2 · A state dot knew only up from down.** `Badge::dot(theme, up: bool)`
+paints `●` in the success ink or `○` in the muted one. The settings screen
+says *unsaved changes* in the warning tone, and drew a green dot beside an
+orange word until `Badge::state(theme, tone)` existed. `dot` is now that
+function with `Tone::Success` passed in, so the two cannot drift apart.
+
+**3 · A `Field` could not sit inside a line.** `Badge` has `spans()`,
+`Choice` has `value_spans()`, `KeyHints` has `footer()` — `Field` had only
+a `Widget`. A settings screen is a list of rows, and one row being a widget
+while the rest are lines cost the caller a small machine of its own to tell
+the two apart: an enum, a match, and an index that had to agree with the
+arrow keys by hand. `Field::spans()` removed all of it, and the widget now
+renders those same spans, so the two shapes cannot disagree.
+
+### What three screens say together
+
+| | stacks | dashboard | settings |
+| --- | --- | --- | --- |
+| homelab, code lines | 177 | 315 | 95 |
+| the rebuild | 169 | 228 | 103 |
+| theme constants | 34 → 0 | 48 → 0 | 17 → 0 |
+| what it found | 3 missing widgets | 1 defect, 2 gaps | 3 gaps |
+
+The line count goes whichever way the screen goes, and that was never the
+argument. The argument is the second row of each table: 99 references to a
+hand-written theme in three screens, none of them left, and the same three
+screens reading as a phosphor CRT, a HUD and a printed page without a
+second palette anywhere.
