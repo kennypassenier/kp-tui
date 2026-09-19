@@ -6,12 +6,13 @@
 //! leans hardest on widgets — two hand-drawn bars, a table with a
 //! selection and a scanline, a spinner, and a stream of marching dots.
 //!
-//! What the crate could not supply is marked `GAP` inline, the way
-//! `fleet.rs` did before its three gaps were closed.
+//! It found one defect and two gaps on the way [fix-2, docs/HOMELAB_PROOF.md];
+//! all three were closed in the crate, so nothing on this screen is marked
+//! `GAP` any more and no colour on it is chosen here.
 
 use kp_tui::{
-    Badge, Column, DataTable, Facts, Meter, Spark, Stage, Theme, Tone, fx::Motion, source_colour,
-    spinner, widgets::Panel,
+    Badge, Column, DataTable, Facts, Meter, Spark, Stage, Stream, Theme, Tone, fx::Motion,
+    source_colour, spinner, widgets::Panel,
 };
 use ratatui::{
     Frame,
@@ -209,13 +210,10 @@ fn draw_fleet(
     frame.render_widget(panel, area);
 
     let columns = [
-        Column::new("node", 18),
-        Column::new("status", 10),
-        // GAP: DataTable puts nothing between two columns, so a
-        // right-aligned count ends flush against the flags beside it.
-        // Left-aligned, the column carries its own gutter.
-        Column::new("apps", 8),
-        Column::new("flags", 16),
+        Column::new("node", 17),
+        Column::new("status", 8),
+        Column::new("apps", 5).right(),
+        Column::new("flags", 15),
     ];
     let rows: Vec<Vec<Line<'static>>> = FLEET
         .iter()
@@ -305,29 +303,10 @@ fn draw_transfers(
                 Meter::new(th, "", t.done as f32 / total as f32).thresholds(2.0, 2.0),
                 flow,
             ),
-            // GAP — an indeterminate stream. homelab marches `▸` along the
-            // row once a tick; the crate has no widget that says "this is
-            // running and nobody knows for how long", so the march is
-            // written here, in the demo, with its colour chosen by hand.
-            None => {
-                let width = flow.width as usize;
-                let head = (reveal_ms / 90) as usize % width.max(1);
-                let march: String = (0..width)
-                    .map(|i| {
-                        if (i + head).is_multiple_of(4) {
-                            '▸'
-                        } else {
-                            '·'
-                        }
-                    })
-                    .collect();
-                Paragraph::new(Line::from(Span::styled(
-                    march,
-                    Style::new().fg(th.c.accent),
-                )))
-                .style(Style::new().bg(th.c.card))
-                .render(flow, frame.buffer_mut());
-            }
+            // A transfer whose size nobody knows is the package's own
+            // indeterminate bar, in cells: the register's diagonal
+            // drifting over the muted track [gap-11].
+            None => frame.render_widget(Stream::new(th, reveal_ms, motion), flow),
         }
     }
 }

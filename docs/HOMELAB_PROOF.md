@@ -93,16 +93,17 @@ splash — was rebuilt the same way, in
 cargo run --example demo -- --screen ops --theme cyberpunk
 ```
 
-| | homelab's `dashboard.rs` | the rebuild |
-| --- | --- | --- |
-| Drawing code, non-blank lines | 319 | 264 |
-| Of those, comments | 4 | 18 |
-| So: code | 315 | 246 |
-| References to a theme constant | 48 `THEME.*` | 0 — every colour comes from `&Theme` |
-| Colour literals | 1 (`Color::Rgb`) | 0 |
-| Themes it renders in | 1 | 22 |
+| | homelab's `dashboard.rs` | first pass | with the gaps closed |
+| --- | --- | --- | --- |
+| Drawing code, non-blank lines | 319 | 264 | 242 |
+| Of those, comments | 4 | 18 | 14 |
+| So: code | 315 | 246 | 228 |
+| Lines of hand-chosen style | — | 18 | 0 |
+| References to a theme constant | 48 `THEME.*` | 0 | 0 — every colour comes from `&Theme` |
+| Colour literals | 1 (`Color::Rgb`) | 0 | 0 |
+| Themes it renders in | 1 | 22 | 22 |
 
-**Sixty-nine lines shorter, 22 %**, and this time the direction is the one
+**Eighty-seven lines shorter, 28 %**, and this time the direction is the one
 the first proof predicted: the first rebuild was six lines longer because
 three widgets did not exist yet; with those three in the crate, a screen
 that uses all of them comes out shorter than the hand-written original.
@@ -110,34 +111,55 @@ Counted with `awk 'NR>=12 && NF'` on homelab's file (its drawing code
 starts at line 12) and `awk '/^pub fn draw\(/{f=1} f&&NF'` on the rebuild,
 so the fixtures at the top of the demo file are not counted as drawing.
 
-### What it found
+### What it found, and what was done about it
 
-Two things, both marked `GAP` inline so a reader can count them rather
-than take this document's word.
+Three things. All three were closed the same day Kenny judged them, so
+nothing on this screen is marked `GAP` any more and no colour on it is
+chosen by hand.
 
 **1 · A table cell was painted in one colour.** `DataTable` flattened every
 cell to its first span's style, so the `▎` hue bar before a node's name
 painted the whole name that hue, and a row carrying both an `off` and a
-`noenv` badge drew them in one. It is a defect, not a gap: fixed in
-`pad_spans`, which pads a cell to its column with every span intact and
-cuts at the column's edge. The test
+`noenv` badge drew them in one. A defect, not a gap: fixed in `pad_spans`,
+which pads a cell to its column with every span intact and cuts at the
+column's edge. The test
 `a_table_cell_keeps_the_colour_of_every_span_it_is_built_from` fails
 against the old code with `left: Rgb(163, 41, 41), right: Rgb(23, 30, 43)`
 — the node name wearing the bar's hue — and passes against the new.
+Recorded as `fix-2` in `docs/CORRECTIONS.md`.
 
-**2 · Two columns touch.** `DataTable` puts nothing between columns: the
-width of a column is its slot, gutter included. A left-aligned column
-carries its own gutter in its padding; a **right-aligned** one does not,
-so its last character sits flush against the next column's first. It cost
-this screen the `apps` column's alignment — `3/4` is left-aligned there
-with a `GAP` note beside it. A `column_spacing`, the way ratatui's own
-`Table` has one, would make the trap impossible; that is a choice, not a
-defect, so it is written down here rather than made.
+**2 · Two columns touched.** `DataTable` put nothing between columns: the
+width of a column was its slot, gutter included. A left-aligned column
+carries its own gutter in its padding; a **right-aligned** one does not, so
+its last character sat flush against the next column's first — `3/4UPD`,
+`0/1OFFNOENV`, and a spaced header reading `A P P SF L A G S`. Now
+`DataTable::spacing` puts a cell between two columns, one by default, the
+way ratatui's own `Table` has a `column_spacing`; `spacing(0)` is the old
+behaviour and is what drives
+`a_right_aligned_column_does_not_end_against_the_next_one` red. A column's
+width is its content again, which is why the four callers lost a cell each.
 
-**3 · An indeterminate stream is still hand-written.** homelab marches `▸`
-along the row for a transfer whose size nobody knows. `Meter` needs a
-fraction, and the crate has no widget that says "this is running and for
-how long is unknown", so the march is 18 lines in the demo with its colour
-chosen by hand — the only hand-chosen style left on this screen. The first
-proof named it ("an indeterminate gauge (the deploy window)") as the thing
-the next proof would need; it did.
+**3 · An indeterminate stream was hand-written.** homelab marches a mark
+along the row for a transfer whose size nobody knows, and `Meter` wants a
+fraction there is none of, so the rebuild wrote eighteen lines with a
+colour chosen on the spot — the only hand-chosen style left on the screen.
+The first proof had named this exact thing as what the next proof would
+need, and it was right.
+
+The answer was not invented here. The package had already decided what an
+indeterminate bar looks like, at `gap-11` in `css/components.css`: *an
+indeterminate bar is not a full one* — the track wears diagonal stripes in
+the accent, the bar steps aside, and the stripes drift slowly with no
+change of light [DI5], because a full bar and a flashing one both lie about
+something nobody has measured. `Stream` is that decision in a cell grid:
+the diagonal is `╱` (`/` for the two registers whose spinner is plain
+ASCII, which would not draw a box-drawing diagonal either), the stripe
+repeats every four cells, and the web's `kp-progress-stripes 1200ms linear
+infinite` moves one stripe per 1200 ms — four cells, so 300 ms a cell.
+`an_indeterminate_stream_drifts_without_changing_its_light` reads the
+picture at 0, 300 and 600 ms, asserts the two colours never move, and holds
+still under reduced motion.
+
+That is the second proof's real finding: the first screen's three gaps were
+widgets the crate lacked, and this screen's three were a defect, a trap and
+a value that already existed on the web and had never been carried over.

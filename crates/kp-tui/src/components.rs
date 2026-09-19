@@ -17,7 +17,7 @@ use ratatui::{
 
 use crate::anatomy::{ButtonFace, Rule, Texture, Tone};
 use crate::color::{ColorDepth, Rgb, Role};
-use crate::effects::{self, mix};
+use crate::effects::{self, Spinner, mix};
 use crate::fx::Motion;
 use crate::logs::{LogBuffer, Severity};
 use crate::theme::Theme;
@@ -227,6 +227,87 @@ impl Widget for Field<'_> {
 /// homelab builds this twice out of block characters, and colours it by
 /// hand at 70 % and 90 %. Here the thresholds are the caller's and the
 /// colours are the theme's.
+/// Work that is running with no known end: the track in `--muted` with the
+/// theme's accent striping across it, drifting, never changing its light.
+///
+/// The third gap the second proof found [docs/HOMELAB_PROOF.md]. `Meter`
+/// wants a fraction and there is none, so homelab draws this by hand and
+/// so did the rebuild, eighteen lines with a colour chosen on the spot.
+///
+/// It is not invented here: the package already decided what an
+/// indeterminate bar looks like, at `gap-11` in `css/components.css` —
+/// "an indeterminate bar is not a full one", so the track wears diagonal
+/// stripes in the accent, the bar steps aside, and the stripes drift
+/// slowly with no change of light [DI5], because a full bar and a
+/// flashing one both lie about a thing nobody has measured. Translated to
+/// a cell grid: the diagonal is `╱`, the stripe repeats every four cells,
+/// and the web's `kp-progress-stripes 1200ms linear infinite` moves one
+/// stripe per 1200 ms — four cells, so 300 ms a cell.
+///
+/// A register whose spinner is plain ASCII would not draw a diagonal
+/// either, so it stripes with `/`.
+pub struct Stream<'a> {
+    theme: &'a Theme,
+    elapsed_ms: u32,
+    motion: Motion,
+    period_ms: u32,
+}
+
+impl<'a> Stream<'a> {
+    pub fn new(theme: &'a Theme, elapsed_ms: u32, motion: Motion) -> Self {
+        Stream {
+            theme,
+            elapsed_ms,
+            motion,
+            // css/components.css: kp-progress-stripes, 1200ms per stripe.
+            period_ms: 1200,
+        }
+    }
+
+    /// A whole drift of the stripe, in milliseconds.
+    pub fn period(mut self, period_ms: u32) -> Self {
+        self.period_ms = period_ms;
+        self
+    }
+
+    /// The diagonal this register stripes with.
+    pub fn mark(&self) -> &'static str {
+        match self.theme.a.fx.spinner {
+            Spinner::Ascii => "/",
+            _ => "╱",
+        }
+    }
+
+    /// The track, cell by cell: `Some` where the stripe covers it.
+    pub fn cells(&self, width: u16) -> Vec<bool> {
+        const STRIPE: usize = 4;
+        let shift = if self.motion == Motion::Reduced || self.period_ms == 0 {
+            0
+        } else {
+            (self.elapsed_ms as usize * STRIPE / self.period_ms as usize) % STRIPE
+        };
+        (0..width as usize)
+            .map(|x| (x + STRIPE - shift) % STRIPE < 2)
+            .collect()
+    }
+}
+
+impl Widget for Stream<'_> {
+    fn render(self, area: Rect, buf: &mut Buffer) {
+        if area.width == 0 || area.height == 0 {
+            return;
+        }
+        let t = &self.theme.c;
+        let mark = self.mark();
+        let row = Rect { height: 1, ..area };
+        for (x, striped) in self.cells(row.width).into_iter().enumerate() {
+            let cell = &mut buf[(row.x + x as u16, row.y)];
+            cell.set_symbol(if striped { mark } else { " " });
+            cell.set_style(Style::new().fg(t.primary).bg(t.muted));
+        }
+    }
+}
+
 pub struct Meter<'a> {
     theme: &'a Theme,
     label: &'a str,
@@ -1692,6 +1773,7 @@ pub struct DataTable<'a> {
     rows: &'a [Vec<Line<'static>>],
     selected: Option<usize>,
     offset: usize,
+    spacing: u16,
 }
 
 impl<'a> DataTable<'a> {
@@ -1706,7 +1788,39 @@ impl<'a> DataTable<'a> {
             rows,
             selected: None,
             offset: 0,
+            spacing: 1,
         }
+    }
+
+    /// The cells between two columns, one by default. A column's width is
+    /// its content; the gap is the table's, the way ratatui's own `Table`
+    /// has a `column_spacing`.
+    ///
+    /// The second proof asked for this [docs/HOMELAB_PROOF.md]: without it
+    /// a column carried its own gutter in its padding, which works while
+    /// the column is left-aligned and fails the moment it is not — a
+    /// right-aligned count ended flush against the flags beside it and
+    /// read as `3/4UPD`. Set it to 0 for a table that packs its own.
+    pub fn spacing(mut self, cells: u16) -> Self {
+        self.spacing = cells;
+        self
+    }
+
+    /// `parts` with `spacing` cells of whatever `gap` builds between every
+    /// two of them. Header and row take the same path, so a gap cannot be
+    /// in one and absent from the other.
+    fn spaced<T>(&self, parts: Vec<T>, gap: impl Fn(usize) -> T) -> Vec<T> {
+        if self.spacing == 0 || parts.len() < 2 {
+            return parts;
+        }
+        let mut out = Vec::with_capacity(parts.len() * 2 - 1);
+        for (n, part) in parts.into_iter().enumerate() {
+            if n > 0 {
+                out.push(gap(self.spacing as usize));
+            }
+            out.push(part);
+        }
+        out
     }
 
     pub fn selected(mut self, selected: usize) -> Self {
@@ -1749,7 +1863,7 @@ impl<'a> DataTable<'a> {
                 Span::styled(pad(&head, c.width, c.right), style)
             })
             .collect::<Vec<_>>();
-        Line::from(spans)
+        Line::from(self.spaced(spans, |n| Span::styled(" ".repeat(n), style)))
     }
 
     /// The rule under the header, cell by cell. A gradient register gets a
@@ -1860,12 +1974,15 @@ impl Widget for DataTable<'_> {
             .rows
             .iter()
             .map(|cells| {
-                let spans: Vec<Span<'static>> = cells
+                let cells: Vec<Vec<Span<'static>>> = cells
                     .iter()
                     .zip(self.columns)
-                    .flat_map(|(cell, col)| pad_spans(cell, col.width, col.right))
+                    .map(|(cell, col)| pad_spans(cell, col.width, col.right))
                     .collect();
-                Line::from(spans)
+                Line::from(
+                    self.spaced(cells, |n| vec![Span::raw(" ".repeat(n))])
+                        .concat(),
+                )
             })
             .collect();
         match self.selected {

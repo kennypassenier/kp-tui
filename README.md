@@ -73,7 +73,7 @@ plus its anatomy), and the widgets:
 
 ## Status
 
-Started 2026-09-17. The crates build, 50 tests pass, clippy is clean, and
+Started 2026-09-17. The crates build, 52 tests pass, clippy is clean, and
 CI runs fmt, clippy and the suite on every push.
 
 The demo draws six screens — `dashboard`, `components`, `console`,

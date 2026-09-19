@@ -6,8 +6,8 @@
 
 use kp_tui::{
     AlarmPanel, Badge, ColorDepth, Column, CommandPalette, DataTable, Facts, Field, KeyHints,
-    LogPane, Meter, Popup, PopupKind, SelectList, Spark, Stepper, Surface, Theme, ThemeId, Ticker,
-    Tone,
+    LogPane, Meter, Popup, PopupKind, SelectList, Spark, Stepper, Stream, Surface, Theme, ThemeId,
+    Ticker, Tone,
     anatomy::Reveal,
     color::Rgb,
     dashboard::rate,
@@ -1195,7 +1195,8 @@ fn a_table_wears_the_register_s_own_header() {
             .iter()
             .map(|s| s.content.as_ref())
             .collect();
-        assert_eq!(head.chars().count(), 29, "{}: {head:?}", id.name());
+        // 12 + 8 + 9 content cells, and a cell of spacing between each pair.
+        assert_eq!(head.chars().count(), 31, "{}: {head:?}", id.name());
         if th.a.table.uppercase {
             assert!(
                 head.contains("APP") || head.contains("A P P"),
@@ -1204,12 +1205,12 @@ fn a_table_wears_the_register_s_own_header() {
             );
         }
         // The numbers sit at the right edge of their column.
-        let mut buf = Buffer::empty(Rect::new(0, 0, 29, 5));
+        let mut buf = Buffer::empty(Rect::new(0, 0, 31, 5));
         DataTable::new(&th, &columns, &rows).render(buf.area, &mut buf);
-        let row: String = (0..29).map(|x| buf[(x, 2)].symbol().to_string()).collect();
+        let row: String = (0..31).map(|x| buf[(x, 2)].symbol().to_string()).collect();
         assert!(row.trim_end().ends_with('0'), "{}: {row:?}", id.name());
         // And the rule under the header is drawn.
-        let rule: String = (0..29).map(|x| buf[(x, 1)].symbol().to_string()).collect();
+        let rule: String = (0..31).map(|x| buf[(x, 1)].symbol().to_string()).collect();
         assert!(
             rule.chars().all(|c| "─━═".contains(c)),
             "{}: {rule:?}",
@@ -1222,14 +1223,14 @@ fn a_table_wears_the_register_s_own_header() {
         ThemeId::from_name("synthwave").unwrap(),
         ColorDepth::TrueColor,
     );
-    let mut buf = Buffer::empty(Rect::new(0, 0, 29, 5));
+    let mut buf = Buffer::empty(Rect::new(0, 0, 31, 5));
     DataTable::new(&sw, &columns, &rows).render(buf.area, &mut buf);
-    assert_ne!(buf[(0, 1)].fg, buf[(28, 1)].fg, "the gradient rule");
+    assert_ne!(buf[(0, 1)].fg, buf[(30, 1)].fg, "the gradient rule");
     // And every other register draws one colour from end to end.
     let term = Theme::new(ThemeId::TERMINAL, ColorDepth::TrueColor);
-    let mut plain = Buffer::empty(Rect::new(0, 0, 29, 5));
+    let mut plain = Buffer::empty(Rect::new(0, 0, 31, 5));
     DataTable::new(&term, &columns, &rows).render(plain.area, &mut plain);
-    assert_eq!(plain[(0, 1)].fg, plain[(28, 1)].fg);
+    assert_eq!(plain[(0, 1)].fg, plain[(30, 1)].fg);
 }
 
 #[test]
@@ -1491,7 +1492,7 @@ fn a_table_cell_keeps_the_colour_of_every_span_it_is_built_from() {
             Span::styled("upd", Style::new().fg(rgb(p.warning))),
         ]),
     ]];
-    let mut buf = Buffer::empty(Rect::new(0, 0, 24, 3));
+    let mut buf = Buffer::empty(Rect::new(0, 0, 25, 3));
     DataTable::new(&th, &columns, &rows).render(buf.area, &mut buf);
 
     // The bar keeps its own hue and the name does not take it.
@@ -1499,9 +1500,97 @@ fn a_table_cell_keeps_the_colour_of_every_span_it_is_built_from() {
     assert_eq!(buf[(0, 2)].fg, rgb(p.destructive), "the hue bar");
     assert_eq!(buf[(1, 2)].fg, rgb(p.card_foreground), "the node name");
     // Two badges in one cell are two colours, not one.
-    assert_eq!(buf[(12, 2)].fg, rgb(p.muted_foreground), "the off badge");
-    assert_eq!(buf[(15, 2)].fg, rgb(p.warning), "the upd badge");
+    assert_eq!(buf[(13, 2)].fg, rgb(p.muted_foreground), "the off badge");
+    assert_eq!(buf[(16, 2)].fg, rgb(p.warning), "the upd badge");
     // And the cell still fills its column, so the next one starts on time.
-    let row: String = (0..24).map(|x| buf[(x, 2)].symbol().to_string()).collect();
-    assert_eq!(row, "▎media      offupd      ");
+    let row: String = (0..25).map(|x| buf[(x, 2)].symbol().to_string()).collect();
+    assert_eq!(row, "▎media       offupd      ");
+}
+
+/// A column's width is its content and the gap between two columns is the
+/// table's, so a right-aligned column cannot end flush against the next.
+///
+/// The second proof measured the old behaviour [docs/HOMELAB_PROOF.md]: a
+/// count of `3/4` beside a flag read `3/4UPD`. `spacing(0)` is the old
+/// behaviour, kept for a table that packs its own gutters — and it is what
+/// drives this test red.
+#[test]
+fn a_right_aligned_column_does_not_end_against_the_next_one() {
+    let th = Theme::new(ThemeId::FORMAL, ColorDepth::TrueColor);
+    let columns = [Column::new("n", 4), Column::new("qty", 3).right()];
+    let rows = vec![vec![Line::from("web"), Line::from("12")]];
+
+    let mut spaced = Buffer::empty(Rect::new(0, 0, 8, 3));
+    DataTable::new(&th, &columns, &rows).render(spaced.area, &mut spaced);
+    let row: String = (0..8)
+        .map(|x| spaced[(x, 2)].symbol().to_string())
+        .collect();
+    assert_eq!(row, "web   12");
+
+    // The same table that packs its own gutters: the count touches.
+    let mut packed = Buffer::empty(Rect::new(0, 0, 7, 3));
+    DataTable::new(&th, &columns, &rows)
+        .spacing(0)
+        .render(packed.area, &mut packed);
+    let row: String = (0..7)
+        .map(|x| packed[(x, 2)].symbol().to_string())
+        .collect();
+    assert_eq!(row, "web  12");
+
+    // The header is laid out by the same code, so it cannot drift from it.
+    let head: String = DataTable::new(&th, &columns, &rows)
+        .header()
+        .spans
+        .iter()
+        .map(|s| s.content.as_ref())
+        .collect();
+    assert_eq!(head.chars().count(), 8, "{head:?}");
+}
+
+/// An indeterminate bar is not a full one, and it is not a flashing one
+/// either: the package decided that at `gap-11` and this is the same
+/// decision in cells — the register's diagonal drifting over the muted
+/// track, one stripe every 1200 ms, holding still under reduced motion.
+#[test]
+fn an_indeterminate_stream_drifts_without_changing_its_light() {
+    let th = Theme::new(ThemeId::FORMAL, ColorDepth::TrueColor);
+    let p = ThemeId::FORMAL.palette();
+    let draw = |ms: u32, motion| {
+        let mut buf = Buffer::empty(Rect::new(0, 0, 12, 1));
+        Stream::new(&th, ms, motion).render(buf.area, &mut buf);
+        buf
+    };
+
+    let rest = draw(0, Motion::Full);
+    let drifted = draw(300, Motion::Full);
+    let later = draw(600, Motion::Full);
+    let picture = |b: &Buffer| {
+        (0..12)
+            .map(|x| b[(x, 0)].symbol().to_string())
+            .collect::<String>()
+    };
+
+    // A whole stripe is four cells wide, two of them covered.
+    assert_eq!(picture(&rest), "╱╱  ╱╱  ╱╱  ");
+    // 1200 ms moves one stripe, so 300 ms moves one cell.
+    assert_eq!(picture(&drifted), " ╱╱  ╱╱  ╱╱ ");
+    assert_ne!(picture(&rest), picture(&drifted), "it has to move");
+
+    // Nothing about the light changes while it moves [DI5]: the same two
+    // colours at every moment, the accent over the muted track.
+    for b in [&rest, &drifted, &later] {
+        for x in 0..12 {
+            assert_eq!(b[(x, 0)].fg, rgb(p.primary));
+            assert_eq!(b[(x, 0)].bg, rgb(p.muted));
+        }
+    }
+
+    // Reduced motion holds the stripe where it starts.
+    assert_eq!(picture(&draw(300, Motion::Reduced)), picture(&rest));
+
+    // A register that would not draw a spinner ring does not draw a
+    // box-drawing diagonal either.
+    let term = Theme::new(ThemeId::TERMINAL, ColorDepth::TrueColor);
+    assert_eq!(Stream::new(&term, 0, Motion::Full).mark(), "/");
+    assert_eq!(Stream::new(&th, 0, Motion::Full).mark(), "╱");
 }

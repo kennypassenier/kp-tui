@@ -92,5 +92,5 @@ Found on 2026-09-19, rebuilding homelab's dashboard as the second proof
 
 | ID | What | Status |
 | --- | --- | --- |
-| fix-1-M1 | Does a state word read where it is painted? Measured at the next screen this crate draws: the contrast test is green, and Kenny reads the state words on the shot without asking what they say. | open |
+| fix-1-M1 | Does a state word read where it is painted? Measured at the ops screen, 2026-09-19: the contrast test walks 22 themes × 4 tones × 3 surfaces plus the four plates and is green, and Kenny read `up`, `down`, `upd`, `off`, `noenv` and `alloc 134%` on the shot in six registers without asking what they said. | closed |
 | fix-2-M1 | Does a table cell keep the colour of every part it is built from? Measured at this commit (2026-09-19): the test fails against the old code with left Rgb(163, 41, 41), right Rgb(23, 30, 43), and passes against the new; the ops shot draws five hue bars and two badge colours in one row. Again at the third screen this crate draws. | open |

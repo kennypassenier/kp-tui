@@ -24,6 +24,7 @@ the same mechanic with the theme holding the knobs.
 | `ticker_text(segments, width, tick)` — joined with `  ::  ` | `components::Ticker` | The divider is the theme's own `tab_divider`; the speed is one knob |
 | `flicker_phase(ticks_left)` — a few dark ticks, one bright flash | `effects::Strike` (`Alarm::strike`) | The stops come from `@keyframes kp-alarm-cyberpunk-flicker` [scope-100]: 0 → 0.6 → 0.52 → 1 over 600 ms, one cell sideways, **once**. Only the register that declares it |
 | `spinner(tick)` — ten braille frames | `effects::Spinner` (`Fx::spinner`) | Braille, quadrant, half-block, bar or ASCII, per theme, at the 900 ms `--kp-spinner-duration` |
+| `progress_marks(tick, width)` — a mark marching along the row for a transfer of unknown size | `components::Stream` | The package's own answer at `gap-11`: an indeterminate bar is not a full one, so the muted track wears the accent as diagonal stripes that drift with no change of light [DI5]. The diagonal is `╱`, or `/` in the two registers whose spinner is plain ASCII; the stripe repeats every four cells and `kp-progress-stripes 1200ms` moves one stripe, so 300 ms a cell |
 | `braille_spark(data, width)` | already `dashboard`'s own chart | — |
 | `load_color(pct)` | already `Meter::thresholds` | `--success`, `--warning`, `--destructive` |
 
