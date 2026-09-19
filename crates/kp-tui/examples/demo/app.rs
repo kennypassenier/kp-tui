@@ -81,6 +81,9 @@ pub enum Screen {
     Effects,
     /// homelab's own stacks screen, rebuilt on this crate [docs/HOMELAB_PROOF.md].
     Fleet,
+    /// homelab's own dashboard, rebuilt on this crate — the second proof
+    /// [docs/HOMELAB_PROOF.md].
+    Ops,
 }
 
 pub struct App {
@@ -260,10 +263,14 @@ impl App {
                 self.palette_open = true;
                 self.palette_sel = 0;
             }
-            KeyCode::Down | KeyCode::Char('j') if self.screen == Screen::Fleet => {
+            KeyCode::Down | KeyCode::Char('j')
+                if matches!(self.screen, Screen::Fleet | Screen::Ops) =>
+            {
                 self.stack_sel = (self.stack_sel + 1) % crate::fleet::FLEET.len();
             }
-            KeyCode::Up | KeyCode::Char('k') if self.screen == Screen::Fleet => {
+            KeyCode::Up | KeyCode::Char('k')
+                if matches!(self.screen, Screen::Fleet | Screen::Ops) =>
+            {
                 self.stack_sel =
                     (self.stack_sel + crate::fleet::FLEET.len() - 1) % crate::fleet::FLEET.len();
             }
@@ -276,7 +283,8 @@ impl App {
                     Screen::Components => Screen::Console,
                     Screen::Console => Screen::Effects,
                     Screen::Effects => Screen::Fleet,
-                    Screen::Fleet => Screen::Dashboard,
+                    Screen::Fleet => Screen::Ops,
+                    Screen::Ops => Screen::Dashboard,
                 };
                 self.reveal_ms = 0;
             }
@@ -350,6 +358,17 @@ impl App {
         if self.screen == Screen::Fleet {
             frame.render_widget(Block::new().style(self.theme.base()), frame.area());
             crate::fleet::draw(
+                frame,
+                &self.theme,
+                self.stack_sel,
+                self.reveal_ms,
+                self.config.motion,
+            );
+            return;
+        }
+        if self.screen == Screen::Ops {
+            frame.render_widget(Block::new().style(self.theme.base()), frame.area());
+            crate::ops::draw(
                 frame,
                 &self.theme,
                 self.stack_sel,

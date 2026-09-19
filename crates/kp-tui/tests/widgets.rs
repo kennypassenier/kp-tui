@@ -18,7 +18,13 @@ use kp_tui::{
     roll, source_colour, spinner,
     widgets::{Button, ButtonState},
 };
-use ratatui::{buffer::Buffer, layout::Rect, style::Color, text::Line, widgets::Widget};
+use ratatui::{
+    buffer::Buffer,
+    layout::Rect,
+    style::{Color, Style},
+    text::{Line, Span},
+    widgets::Widget,
+};
 
 fn rgb(c: Rgb) -> Color {
     Color::Rgb(c.0, c.1, c.2)
@@ -1461,4 +1467,41 @@ fn only_the_registers_that_cut_corners_wear_them() {
         kp_tui::widgets::Panel::new(&th, "Fleet").render(rest.area, &mut rest);
         assert_ne!(rest[(0, 0)].symbol(), "⌜", "{}", id.name());
     }
+}
+
+/// A cell is built out of spans — a hue bar before a name, a dot before a
+/// status, two badges side by side — and each of those carries its own
+/// colour. The table pads the cell to its column; it does not repaint it.
+///
+/// The second proof found this [docs/HOMELAB_PROOF.md]: the fleet table's
+/// leading `▎` painted the whole node name its hue, and a row with both an
+/// `off` and a `noenv` badge drew them in one colour.
+#[test]
+fn a_table_cell_keeps_the_colour_of_every_span_it_is_built_from() {
+    let th = Theme::new(ThemeId::FORMAL, ColorDepth::TrueColor);
+    let p = ThemeId::FORMAL.palette();
+    let columns = [Column::new("node", 12), Column::new("flags", 12)];
+    let rows = vec![vec![
+        Line::from(vec![
+            Span::styled("▎", Style::new().fg(rgb(p.destructive))),
+            Span::styled("media", Style::new().fg(rgb(p.card_foreground))),
+        ]),
+        Line::from(vec![
+            Span::styled("off", Style::new().fg(rgb(p.muted_foreground))),
+            Span::styled("upd", Style::new().fg(rgb(p.warning))),
+        ]),
+    ]];
+    let mut buf = Buffer::empty(Rect::new(0, 0, 24, 3));
+    DataTable::new(&th, &columns, &rows).render(buf.area, &mut buf);
+
+    // The bar keeps its own hue and the name does not take it.
+    assert_eq!(buf[(0, 2)].symbol(), "▎");
+    assert_eq!(buf[(0, 2)].fg, rgb(p.destructive), "the hue bar");
+    assert_eq!(buf[(1, 2)].fg, rgb(p.card_foreground), "the node name");
+    // Two badges in one cell are two colours, not one.
+    assert_eq!(buf[(12, 2)].fg, rgb(p.muted_foreground), "the off badge");
+    assert_eq!(buf[(15, 2)].fg, rgb(p.warning), "the upd badge");
+    // And the cell still fills its column, so the next one starts on time.
+    let row: String = (0..24).map(|x| buf[(x, 2)].symbol().to_string()).collect();
+    assert_eq!(row, "▎media      offupd      ");
 }

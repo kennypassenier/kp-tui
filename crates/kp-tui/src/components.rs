@@ -1781,6 +1781,42 @@ impl<'a> DataTable<'a> {
 }
 
 /// Pad a cell to its column, on the side its alignment asks for.
+/// A cell padded to its column with every one of its spans intact. A cell
+/// is built out of parts that each carry a colour — the hue bar before a
+/// node's name, the dot before its status, two badges side by side — and
+/// flattening it to the first span's style paints the whole cell in one of
+/// them; the second proof found the fleet table doing exactly that
+/// [docs/HOMELAB_PROOF.md]. A cell wider than its column is cut at the
+/// column's edge, never wrapped, because a row is one line.
+fn pad_spans(cell: &Line<'static>, width: u16, right: bool) -> Vec<Span<'static>> {
+    let width = width as usize;
+    let mut out: Vec<Span<'static>> = Vec::with_capacity(cell.spans.len() + 1);
+    let mut used = 0usize;
+    for span in &cell.spans {
+        if used >= width {
+            break;
+        }
+        let n = span.content.chars().count();
+        if used + n <= width {
+            out.push(span.clone());
+            used += n;
+        } else {
+            let cut: String = span.content.chars().take(width - used).collect();
+            out.push(Span::styled(cut, span.style));
+            used = width;
+        }
+    }
+    if used < width {
+        let gap = Span::raw(" ".repeat(width - used));
+        if right {
+            out.insert(0, gap);
+        } else {
+            out.push(gap);
+        }
+    }
+    out
+}
+
 fn pad(text: &str, width: u16, right: bool) -> String {
     let width = width as usize;
     let n = text.chars().count();
@@ -1827,11 +1863,7 @@ impl Widget for DataTable<'_> {
                 let spans: Vec<Span<'static>> = cells
                     .iter()
                     .zip(self.columns)
-                    .flat_map(|(cell, col)| {
-                        let text: String = cell.spans.iter().map(|s| s.content.as_ref()).collect();
-                        let style = cell.spans.first().map(|s| s.style).unwrap_or_default();
-                        vec![Span::styled(pad(&text, col.width, col.right), style)]
-                    })
+                    .flat_map(|(cell, col)| pad_spans(cell, col.width, col.right))
                     .collect();
                 Line::from(spans)
             })

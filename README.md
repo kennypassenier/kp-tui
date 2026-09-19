@@ -73,6 +73,10 @@ plus its anatomy), and the widgets:
 
 ## Status
 
-Started 2026-09-17. The crates build, 13 tests pass, clippy is clean. The
-demo that produced this is still `research/ratatui/demo` in kp-themes; it
-keeps its own application tests.
+Started 2026-09-17. The crates build, 50 tests pass, clippy is clean, and
+CI runs fmt, clippy and the suite on every push.
+
+The demo draws six screens — `dashboard`, `components`, `console`,
+`effects`, `fleet`, `ops` — of which the last two are homelab's own
+screens rebuilt on nothing but this crate, measured in
+[docs/HOMELAB_PROOF.md](docs/HOMELAB_PROOF.md).

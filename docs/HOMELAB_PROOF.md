@@ -79,3 +79,65 @@ What answered each gap:
 One thing deliberately not carried over: the 1px rule the base draws
 between body rows. On a page that is a pixel; in a cell grid it is a whole
 row, and it would halve how many records fit. The grid is the rule there.
+
+## The second screen, 2026-09-19
+
+One screen proves that the widgets fit the screen they were drawn from.
+A second one, picked because it leans on different widgets, is what tells
+you whether the crate generalises. So homelab's own dashboard —
+`client/src/tui/view/dashboard.rs`, the screen it opens on after the
+splash — was rebuilt the same way, in
+`crates/kp-tui/examples/demo/ops.rs`:
+
+```sh
+cargo run --example demo -- --screen ops --theme cyberpunk
+```
+
+| | homelab's `dashboard.rs` | the rebuild |
+| --- | --- | --- |
+| Drawing code, non-blank lines | 319 | 264 |
+| Of those, comments | 4 | 18 |
+| So: code | 315 | 246 |
+| References to a theme constant | 48 `THEME.*` | 0 — every colour comes from `&Theme` |
+| Colour literals | 1 (`Color::Rgb`) | 0 |
+| Themes it renders in | 1 | 22 |
+
+**Sixty-nine lines shorter, 22 %**, and this time the direction is the one
+the first proof predicted: the first rebuild was six lines longer because
+three widgets did not exist yet; with those three in the crate, a screen
+that uses all of them comes out shorter than the hand-written original.
+Counted with `awk 'NR>=12 && NF'` on homelab's file (its drawing code
+starts at line 12) and `awk '/^pub fn draw\(/{f=1} f&&NF'` on the rebuild,
+so the fixtures at the top of the demo file are not counted as drawing.
+
+### What it found
+
+Two things, both marked `GAP` inline so a reader can count them rather
+than take this document's word.
+
+**1 · A table cell was painted in one colour.** `DataTable` flattened every
+cell to its first span's style, so the `▎` hue bar before a node's name
+painted the whole name that hue, and a row carrying both an `off` and a
+`noenv` badge drew them in one. It is a defect, not a gap: fixed in
+`pad_spans`, which pads a cell to its column with every span intact and
+cuts at the column's edge. The test
+`a_table_cell_keeps_the_colour_of_every_span_it_is_built_from` fails
+against the old code with `left: Rgb(163, 41, 41), right: Rgb(23, 30, 43)`
+— the node name wearing the bar's hue — and passes against the new.
+
+**2 · Two columns touch.** `DataTable` puts nothing between columns: the
+width of a column is its slot, gutter included. A left-aligned column
+carries its own gutter in its padding; a **right-aligned** one does not,
+so its last character sits flush against the next column's first. It cost
+this screen the `apps` column's alignment — `3/4` is left-aligned there
+with a `GAP` note beside it. A `column_spacing`, the way ratatui's own
+`Table` has one, would make the trap impossible; that is a choice, not a
+defect, so it is written down here rather than made.
+
+**3 · An indeterminate stream is still hand-written.** homelab marches `▸`
+along the row for a transfer whose size nobody knows. `Meter` needs a
+fraction, and the crate has no widget that says "this is running and for
+how long is unknown", so the march is 18 lines in the demo with its colour
+chosen by hand — the only hand-chosen style left on this screen. The first
+proof named it ("an indeterminate gauge (the deploy window)") as the thing
+the next proof would need; it did.
