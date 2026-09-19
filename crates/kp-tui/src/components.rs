@@ -412,6 +412,8 @@ pub struct Meter<'a> {
     value: f32,
     warn_at: f32,
     danger_at: f32,
+    /// A sentence written across the bar instead of a percentage beside it.
+    across: Option<&'a str>,
 }
 
 impl<'a> Meter<'a> {
@@ -422,7 +424,22 @@ impl<'a> Meter<'a> {
             value: value.clamp(0.0, 1.0),
             warn_at: 0.7,
             danger_at: 0.9,
+            across: None,
         }
+    }
+
+    /// A sentence written across the bar, the way homelab's deploy gauge
+    /// carries "streaming over TLS…" — the fifth proof's one gap
+    /// [docs/HOMELAB_PROOF.md]. A percentage beside the bar says how far;
+    /// a sentence across it says what is happening, and on one row there
+    /// is no space for both.
+    ///
+    /// The ink flips where the fill passes under it, so the sentence is
+    /// read on the plate it lands on rather than on the one it started on
+    /// [fix-1].
+    pub fn across(mut self, text: &'a str) -> Self {
+        self.across = Some(text);
+        self
     }
 
     pub fn thresholds(mut self, warn_at: f32, danger_at: f32) -> Self {
@@ -454,6 +471,9 @@ impl Widget for Meter<'_> {
         } else {
             self.label.to_string()
         };
+        if let Some(text) = self.across {
+            return self.render_across(text, area, buf);
+        }
         let reading = format!("{:>3.0}%", self.value * 100.0);
         // label … bar … reading, with the bar taking what is left.
         let text_w = label.chars().count() as u16 + reading.chars().count() as u16 + 2;
@@ -494,6 +514,38 @@ impl Widget for Meter<'_> {
             }),
         ));
         Paragraph::new(Line::from(spans)).render(area, buf);
+    }
+}
+
+impl Meter<'_> {
+    /// The bar with a sentence written across it, cell by cell: the fill is
+    /// the plate up to the value and the muted track after it, and each
+    /// letter takes the ink that reads on the cell it sits on.
+    fn render_across(&self, text: &str, area: Rect, buf: &mut Buffer) {
+        let t = &self.theme.c;
+        let fill = self.colour();
+        let plate = self.theme.id.palette();
+        let width = area.width as usize;
+        let filled = (area.width as f32 * self.value).round() as usize;
+        let letters: Vec<char> = format!(" {text}").chars().collect();
+        for x in 0..width {
+            let covered = x < filled;
+            let cell = &mut buf[(area.x + x as u16, area.y)];
+            cell.set_symbol(&letters.get(x).copied().unwrap_or(' ').to_string());
+            cell.set_style(
+                Style::new()
+                    .fg(if covered {
+                        self.theme.on_plate(match () {
+                            _ if self.value >= self.danger_at => plate.destructive,
+                            _ if self.value >= self.warn_at => plate.warning,
+                            _ => plate.primary,
+                        })
+                    } else {
+                        t.foreground
+                    })
+                    .bg(if covered { fill } else { t.muted }),
+            );
+        }
     }
 }
 

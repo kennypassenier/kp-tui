@@ -73,10 +73,11 @@ plus its anatomy), and the widgets:
 
 ## Status
 
-Started 2026-09-17. The crates build, 56 tests pass, clippy is clean, and
+Started 2026-09-17. The crates build, 57 tests pass, clippy is clean, and
 CI runs fmt, clippy and the suite on every push.
 
-The demo draws seven screens — `dashboard`, `components`, `console`,
-`effects`, `fleet`, `ops`, `settings` — of which the last three are
-homelab's own screens rebuilt on nothing but this crate, measured in
+The demo draws nine screens — `dashboard`, `components`, `console`,
+`effects`, `fleet`, `ops`, `settings`, `logs`, `deploy` — of which the last
+five are homelab's own screens rebuilt on nothing but this crate, measured
+and put side by side with homelab's client in
 [docs/HOMELAB_PROOF.md](docs/HOMELAB_PROOF.md).

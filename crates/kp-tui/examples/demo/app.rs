@@ -87,6 +87,12 @@ pub enum Screen {
     /// homelab's own settings tab, rebuilt on this crate — the third proof
     /// [docs/HOMELAB_PROOF.md].
     Settings,
+    /// homelab's own log stream, rebuilt on this crate — the fourth proof
+    /// [docs/HOMELAB_PROOF.md].
+    LogStream,
+    /// homelab's own deploy window, rebuilt on this crate — the fifth
+    /// proof, and the only one that is an overlay [docs/HOMELAB_PROOF.md].
+    Deploy,
 }
 
 pub struct App {
@@ -121,6 +127,8 @@ pub struct App {
     /// Which stack is in hand in the console's list.
     pub stack_sel: usize,
     pub field_sel: usize,
+    pub asking: bool,
+    pub stream: kp_tui::logs::LogBuffer,
     /// Which step of the wizard the breadcrumb shows.
     pub step: usize,
     pub config_path: Option<PathBuf>,
@@ -178,6 +186,8 @@ impl App {
             palette_sel: 0,
             stack_sel: 1,
             field_sel: 0,
+            asking: true,
+            stream: crate::logstream::feed(),
             step: 2,
             config_path,
             message: String::new(),
@@ -297,7 +307,9 @@ impl App {
                     Screen::Effects => Screen::Fleet,
                     Screen::Fleet => Screen::Ops,
                     Screen::Ops => Screen::Settings,
-                    Screen::Settings => Screen::Dashboard,
+                    Screen::Settings => Screen::LogStream,
+                    Screen::LogStream => Screen::Deploy,
+                    Screen::Deploy => Screen::Dashboard,
                 };
                 self.reveal_ms = 0;
             }
@@ -396,6 +408,38 @@ impl App {
                 frame,
                 &self.theme,
                 self.field_sel,
+                self.reveal_ms,
+                self.config.motion,
+            );
+            return;
+        }
+        if self.screen == Screen::LogStream {
+            frame.render_widget(Block::new().style(self.theme.base()), frame.area());
+            crate::logstream::draw(
+                frame,
+                &self.theme,
+                &self.stream,
+                self.stack_sel,
+                self.reveal_ms,
+                self.config.motion,
+            );
+            return;
+        }
+        if self.screen == Screen::Deploy {
+            // The overlay sits over whatever was on screen; the components
+            // page is what homelab's operator would have been looking at.
+            frame.render_widget(Block::new().style(self.theme.base()), frame.area());
+            crate::ops::draw(
+                frame,
+                &self.theme,
+                self.stack_sel,
+                self.reveal_ms,
+                self.config.motion,
+            );
+            crate::deploy::draw(
+                frame,
+                &self.theme,
+                self.asking,
                 self.reveal_ms,
                 self.config.motion,
             );

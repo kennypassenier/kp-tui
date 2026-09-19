@@ -1,4 +1,4 @@
-//! `kp-tui-demo [--screen dashboard|components|console|effects|fleet|ops|settings] [--theme NAME]
+//! `kp-tui-demo [--screen dashboard|components|console|effects|fleet|ops|settings|logs|deploy] [--theme NAME]
 //!  [--colors truecolor|256|16] [--reduced-motion] [--config PATH] [--fps N]
 //!  [--synthetic-logs] [--exit-after SECONDS] [--shot] [--at MS] [--size WxH]
 //!  [--keys CHARS]`
@@ -20,7 +20,9 @@ use std::{
 use crossterm::{cursor::SetCursorStyle, event, execute};
 mod app;
 mod config;
+mod deploy;
 mod fleet;
+mod logstream;
 mod ops;
 mod settings;
 
@@ -76,6 +78,8 @@ fn main() -> io::Result<()> {
         Some("fleet") => Screen::Fleet,
         Some("ops") => Screen::Ops,
         Some("settings") => Screen::Settings,
+        Some("logs") => Screen::LogStream,
+        Some("deploy") => Screen::Deploy,
         _ => Screen::Dashboard,
     };
     if flag("--shot") {

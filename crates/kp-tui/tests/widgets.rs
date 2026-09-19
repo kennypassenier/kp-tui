@@ -1642,3 +1642,39 @@ fn a_state_dot_carries_the_tone_the_state_deserves() {
     );
     assert_ne!(warn.style.fg, Badge::dot(&th, true).style.fg);
 }
+
+/// A sentence written across a bar is read on the plate it lands on: the
+/// letters over the fill take the ink for that fill, the letters after it
+/// take the body ink, and the sentence itself does not move.
+///
+/// homelab's deploy gauge carries "streaming over TLS…" inside the bar;
+/// `Meter` wrote its label beside it until the fifth proof asked.
+#[test]
+fn a_meter_can_carry_a_sentence_across_its_bar() {
+    let th = Theme::new(ThemeId::FORMAL, ColorDepth::TrueColor);
+    let p = ThemeId::FORMAL.palette();
+    let mut buf = Buffer::empty(Rect::new(0, 0, 20, 1));
+    Meter::new(&th, "deploy", 0.5)
+        .thresholds(2.0, 2.0)
+        .across("streaming")
+        .render(buf.area, &mut buf);
+
+    let row: String = (0..20).map(|x| buf[(x, 0)].symbol().to_string()).collect();
+    assert_eq!(row, " streaming          ");
+    // Ten cells of fill, ten of track.
+    assert_eq!(buf[(0, 0)].bg, rgb(p.primary));
+    assert_eq!(buf[(9, 0)].bg, rgb(p.primary));
+    assert_eq!(buf[(10, 0)].bg, rgb(p.muted));
+    // And the ink flips where the fill ends, so both halves can be read.
+    assert_eq!(buf[(5, 0)].fg, th.on_plate(p.primary));
+    assert_ne!(buf[(5, 0)].fg, buf[(15, 0)].fg);
+
+    // Without it, the meter is the one it always was: label, bar, reading.
+    let mut plain = Buffer::empty(Rect::new(0, 0, 20, 1));
+    Meter::new(&th, "deploy", 0.5).render(plain.area, &mut plain);
+    let row: String = (0..20)
+        .map(|x| plain[(x, 0)].symbol().to_string())
+        .collect();
+    assert!(row.starts_with("deploy"), "{row:?}");
+    assert!(row.ends_with("50%"), "{row:?}");
+}

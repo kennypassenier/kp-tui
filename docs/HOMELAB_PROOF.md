@@ -246,3 +246,84 @@ argument. The argument is the second row of each table: 99 references to a
 hand-written theme in three screens, none of them left, and the same three
 screens reading as a phosphor CRT, a HUD and a printed page without a
 second palette anywhere.
+
+## The fourth and fifth screens, 2026-09-19
+
+Kenny asked for the two that were left, and then for all five side by
+side. The two are the log stream and the deploy window, and they were
+picked as the last pair because each is the only one of its kind: the log
+stream is the only screen that is a feed, and the deploy window is the only
+one that is an overlay.
+
+```sh
+cargo run --example demo -- --screen logs --theme cyberpunk
+cargo run --example demo -- --screen deploy --theme cyberpunk
+```
+
+| | homelab `logs.rs` | the rebuild | homelab `focus.rs` | the rebuild |
+| --- | --- | --- | --- | --- |
+| Drawing code, non-blank lines | 121 | 22 | 224 | 123 |
+| Of those, comments | 1 | 3 | 8 | 11 |
+| So: code | 120 | **19** | 216 | **112** |
+| References to a theme constant | 19 `THEME.*` | 0 | 41 `THEME.*` | 0 |
+| Colour literals | 1 | 0 | 0 | 0 |
+| Themes it renders in | 1 | 22 | 1 | 22 |
+
+**The log stream is the shortest rebuild of the five: 120 lines to 19.**
+`LogPane` already draws the panel, the status in its corner, the source
+bar with each source in its own hue, the rows with their severity tags and
+the scrollbar homelab's three copies do without; `Surface` carries the
+register's texture and the sweeping row homelab writes by hand in all
+three of its log views. The rebuild is a fixture and two calls.
+
+The deploy window halves: 216 lines to 112. `Popup` is the overlay, the
+scrim and the shadow; `Glitch` is the title routine homelab runs over the
+same title; `Stream` is the transfer; `KeyHints` is the footer; and the
+question over the transcript is a second `Popup` in its danger kind.
+
+### What it found
+
+One gap, closed. homelab's gauge carries `streaming over TLS…` **inside**
+the filled bar, and `Meter` wrote its label beside the bar with a
+percentage after it — on one row there is no space for both. `Meter::across`
+writes the sentence across the bar instead, and the ink flips where the
+fill passes under it so both halves can be read [fix-1].
+`a_meter_can_carry_a_sentence_across_its_bar` reads the row back out of
+the buffer and fails if the letters over the fill keep the body ink.
+
+The log stream found nothing missing at all — the first screen of the five
+to do so.
+
+## Five screens, side by side
+
+The five rebuilds put beside homelab's own client, both rendered by the
+same terminal emulator at 104×28 so that what differs on the page differs
+on a real terminal:
+
+```sh
+homelab tui --offline          # homelab's client, driven by its fake host
+cargo run --example demo -- --screen <name> --shot --size 104x28
+```
+
+The left column is captured by driving `homelab tui --offline` in a pty
+and reading the terminal's final state; the right column is the demo's
+one-frame shot fed through the same emulator. The data differs — homelab
+runs on its own fake host and the rebuild on the demo's fixtures — and the
+demo draws no tab bar, so the three rows of chrome on the left are screen
+on the right.
+
+| Screen | homelab, code | the rebuild | what it found |
+| --- | --- | --- | --- |
+| stacks | 177 | 169 | 3 missing widgets |
+| dashboard | 315 | 228 | 1 defect, 2 gaps |
+| settings | 95 | 103 | 3 gaps |
+| log stream | 120 | 19 | nothing |
+| deploy | 216 | 112 | 1 gap |
+| **together** | **923** | **631** | 10 gaps and a defect, all closed |
+
+Two hundred and ninety-two lines fewer over five screens, and 159
+references to a hand-written theme gone to nil. The line counts still go
+whichever way the screen goes — settings is longer, the log stream is a
+sixth — and that was never the argument. The argument is the last column:
+five screens that lean on five different things, and nothing left in any
+of them that names a colour.
