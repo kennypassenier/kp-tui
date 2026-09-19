@@ -1,0 +1,24 @@
+# The proof's own tool, not part of the crate anyone consumes.
+#
+# It puts homelab's client beside the kp-tui rebuild of the same screen,
+# both read by the same terminal emulator so that what differs on the page
+# differs on a real terminal [docs/HOMELAB_PROOF.md].
+#
+# Its own crate, so `portable-pty` and `vt100` are not in the dependency
+# list of a library someone else builds on.
+[package]
+name = "kp-compare"
+description = "Put homelab's own screens beside the kp-tui rebuilds of them"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+# A real pseudo-terminal: homelab's client asks the terminal where the
+# cursor is before it will start, and gives up when nothing answers.
+portable-pty = "0.9"
+# A terminal emulator: a full-screen program writes cursor moves, not
+# lines, so the screen has to be replayed to be read.
+vt100 = "0.16"

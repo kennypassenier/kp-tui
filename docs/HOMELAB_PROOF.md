@@ -301,16 +301,24 @@ same terminal emulator at 104×28 so that what differs on the page differs
 on a real terminal:
 
 ```sh
-homelab tui --offline          # homelab's client, driven by its fake host
-cargo run --example demo -- --screen <name> --shot --size 104x28
+cargo run -p kp-compare -- --theme cyberpunk --out homelab-vs-kp-tui.html
 ```
 
-The left column is captured by driving `homelab tui --offline` in a pty
-and reading the terminal's final state; the right column is the demo's
-one-frame shot fed through the same emulator. The data differs — homelab
-runs on its own fake host and the rebuild on the demo's fixtures — and the
-demo draws no tab bar, so the three rows of chrome on the left are screen
-on the right.
+`crates/kp-compare` is the proof's own tool and its own crate, so the two
+things it needs — a pseudo-terminal and a terminal emulator — are not in
+the dependency list of a library anyone builds on. It drives
+`homelab tui --offline` in a pty, answers the cursor-position request
+crossterm will not start without, presses the keys that reach each tab, and
+reads the screen it ends on; the right column is the demo's one-frame shot
+replayed through the same emulator. The data differs — homelab runs on its
+own fake host and the rebuild on the demo's fixtures — and the demo draws
+no tab bar, so the three rows of chrome on the left are screen on the
+right.
+
+It was Python first, for two hours, because a terminal emulator was one
+`pip install` away. Kenny: *"waarom wordt hier python voor gebruikt? ik heb
+nooit om python gevraagd."* He had not, and nobody had said so out loud;
+`portable-pty` and `vt100` do the same and need nothing installed.
 
 | Screen | homelab, code | the rebuild | what it found |
 | --- | --- | --- | --- |

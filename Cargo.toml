@@ -6,7 +6,7 @@
 # widgets are hand-written and contain nothing but judgement. A consumer
 # that only wants the colours takes the first and stops.
 [workspace]
-members = ["crates/kp-tui-palette", "crates/kp-tui"]
+members = ["crates/kp-tui-palette", "crates/kp-tui", "crates/kp-compare"]
 resolver = "3"
 
 [workspace.package]
