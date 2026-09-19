@@ -666,8 +666,9 @@ fn the_log_pane_carries_the_source_bar_the_severities_and_a_scrollbar() {
         .count();
     assert!(error_cells > 0, "the error lines are coloured");
     // The scrollbar occupies the last column and says the view is at the tail.
-    // The scrollbar is the last column INSIDE the frame; x=69 is the frame.
-    let track: String = (2..11).map(|y| buf[(68, y)].symbol().to_string()).collect();
+    // x=69 is the frame and x=68 the cell of padding inside it, so the
+    // scrollbar sits at 67 [Kenny, 2026-09-19: a cell of margin either side].
+    let track: String = (2..11).map(|y| buf[(67, y)].symbol().to_string()).collect();
     assert!(
         track.contains("█") || track.contains("▐"),
         "a scrollbar: {track:?}"
@@ -1677,4 +1678,146 @@ fn a_meter_can_carry_a_sentence_across_its_bar() {
         .collect();
     assert!(row.starts_with("deploy"), "{row:?}");
     assert!(row.ends_with("50%"), "{row:?}");
+}
+
+/// Every cell a widget paints carries a colour this theme chose — nothing
+/// is left to whatever the terminal happens to use.
+///
+/// Kenny, 2026-09-19, on the five rebuilt screens: "Elke tekst op elke pane
+/// moet gestyled zijn volgens onze stylingkleuren. Hetzelfde met alles wat
+/// kleur heeft. Alle kleur moet altijd uit ons thema komen." A cell left on
+/// `Color::Reset` takes the colour of the terminal it lands in, which is
+/// the one colour the theme did not pick — and the table left a whole row
+/// of them wherever its rows ran out.
+#[test]
+fn every_cell_a_widget_paints_carries_a_colour_the_theme_chose() {
+    use ratatui::style::Color;
+    let loose = |buf: &Buffer| -> Vec<(u16, u16)> {
+        let a = buf.area;
+        (a.y..a.y + a.height)
+            .flat_map(|y| (a.x..a.x + a.width).map(move |x| (x, y)))
+            .filter(|&(x, y)| buf[(x, y)].fg == Color::Reset || buf[(x, y)].bg == Color::Reset)
+            .collect()
+    };
+
+    for id in ThemeId::ALL {
+        let th = Theme::new(id, ColorDepth::TrueColor);
+        let rows = vec![vec![
+            Line::from("media"),
+            Line::from("up"),
+            Line::from("3/4"),
+        ]];
+        let columns = [
+            Column::new("node", 10),
+            Column::new("state", 8),
+            Column::new("apps", 5).right(),
+        ];
+        let items = vec![Line::from("one"), Line::from("two")];
+        let facts = [
+            ("vmid", "104".to_string(), Tone::None),
+            ("drift", "none".to_string(), Tone::Success),
+        ];
+        let mut logs = LogBuffer::new(20);
+        logs.push(logs::LogLine::new(
+            "09:41:02.118",
+            "pve-01",
+            "media",
+            Severity::Info,
+            "worker ready",
+        ));
+
+        // One widget, drawn into a buffer of its own.
+        let mut cases: Vec<(&str, Buffer)> = Vec::new();
+        let mut draw = |name: &'static str, w: u16, h: u16, f: &dyn Fn(&mut Buffer)| {
+            let mut buf = Buffer::empty(Rect::new(0, 0, w, h));
+            f(&mut buf);
+            cases.push((name, buf));
+        };
+        draw("DataTable", 26, 5, &|b| {
+            DataTable::new(&th, &columns, &rows).render(b.area, b)
+        });
+        draw("SelectList", 20, 4, &|b| {
+            SelectList::new(&th, &items, 0).render(b.area, b)
+        });
+        draw("Facts", 26, 3, &|b| {
+            Facts::new(&th, &facts).render(b.area, b)
+        });
+        draw("Field", 26, 1, &|b| {
+            Field::new(&th, "webhook", "off")
+                .focused(true)
+                .render(b.area, b)
+        });
+        draw("Choice", 26, 1, &|b| {
+            Choice::new(&th, "hour", "03:00")
+                .focused(true)
+                .render(b.area, b)
+        });
+        draw("Meter", 26, 1, &|b| {
+            Meter::new(&th, "ssd", 0.6).render(b.area, b)
+        });
+        draw("Meter::across", 26, 1, &|b| {
+            Meter::new(&th, "ssd", 0.6)
+                .across("streaming")
+                .render(b.area, b)
+        });
+        draw("Stream", 26, 1, &|b| {
+            Stream::new(&th, 0, Motion::Full).render(b.area, b)
+        });
+        draw("LogPane", 40, 6, &|b| {
+            LogPane::new(&th, "Journal", &logs)
+                .live(false)
+                .render(b.area, b)
+        });
+
+        for (name, buf) in cases {
+            let bad = loose(&buf);
+            assert!(
+                bad.is_empty(),
+                "{} · {name}: cells without a colour of their own: {bad:?}",
+                id.name()
+            );
+        }
+    }
+}
+
+/// A progress bar is not the same bar in a different colour: each register
+/// closes its ends the way its own `.kp-progress` rule does.
+///
+/// Kenny, 2026-09-19: "ook elementen zoals een progressbar moet uniek zijn
+/// per thema". Measured across all 22 registers: eight draw no border and
+/// get no ends, seven set `border-radius: 0` and get square ones, nostromo
+/// sets a pill radius, and six sit between and get thin rails.
+#[test]
+fn a_progress_bar_closes_its_ends_the_way_its_register_does() {
+    use kp_tui::anatomy::Track;
+    let picture = |id: ThemeId| {
+        let th = Theme::new(id, ColorDepth::TrueColor);
+        let mut buf = Buffer::empty(Rect::new(0, 0, 24, 1));
+        Meter::new(&th, "ssd", 0.5).render(buf.area, &mut buf);
+        (0..24)
+            .map(|x| buf[(x, 0)].symbol().to_string())
+            .collect::<String>()
+    };
+    let mut seen: Vec<Track> = Vec::new();
+    for id in ThemeId::ALL {
+        let track = id.anatomy().meter;
+        let row = picture(id);
+        match track.ends() {
+            None => assert!(
+                !row.contains('[') && !row.contains('(') && !row.contains('▏'),
+                "{}: no border on its bar, so no ends: {row:?}",
+                id.name()
+            ),
+            Some((open, close)) => assert!(
+                row.contains(open) && row.contains(close),
+                "{}: {track:?} wants {open}…{close}: {row:?}",
+                id.name()
+            ),
+        }
+        if !seen.contains(&track) {
+            seen.push(track);
+        }
+    }
+    // All four shapes are in use; none is a rule nothing reaches.
+    assert_eq!(seen.len(), 4, "{seen:?}");
 }

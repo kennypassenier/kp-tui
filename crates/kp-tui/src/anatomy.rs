@@ -74,8 +74,6 @@ pub struct TableHead {
     pub plate: Tone,
     pub ink: Tone,
     pub uppercase: bool,
-    /// A register that sets `letter-spacing` on its header cells.
-    pub spaced: bool,
     pub modifier: Modifier,
     pub rule: Rule,
     pub rule_tone: Tone,
@@ -87,7 +85,6 @@ pub const BASE_HEAD: TableHead = TableHead {
     plate: Tone::None,
     ink: Tone::MutedInk,
     uppercase: false,
-    spaced: false,
     modifier: Modifier::BOLD,
     rule: Rule::Thin,
     rule_tone: Tone::Line,
@@ -145,6 +142,45 @@ pub struct Selection {
     pub modifier: Modifier,
     /// A register that sets `letter-spacing` on it.
     pub spaced: bool,
+}
+
+/// How a register closes the ends of a progress bar.
+///
+/// Measured across all 22 registers' own `.kp-progress` rule, 2026-09-19,
+/// after Kenny asked for elements that differ per theme rather than only
+/// per palette: "ook elementen zoals een progressbar moet uniek zijn per
+/// thema". A page has a border and a radius; a cell grid has the two cells
+/// either side of the bar, so that is where the same decision lands.
+///
+/// Eight registers draw no border at all and get no ends. Of the fourteen
+/// that do, the radius says which ends: `0` is square, a pill radius is
+/// round, anything between is a thin rail.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Track {
+    /// No border on `.kp-progress`: the bar is a plate and nothing else —
+    /// cyberpunk, formal, light, pastel, sepia, shade-dark, shade-light,
+    /// solstice.
+    Plain,
+    /// A border at `border-radius: 0` — brutalism, deco, grotesk, phantom,
+    /// retro, synthwave, terminal.
+    Square,
+    /// A border at `border-radius: 999px` — nostromo alone.
+    Round,
+    /// A border at a radius between the two — blueprint, dark, forest,
+    /// high-contrast, lapis, titanium.
+    Rail,
+}
+
+impl Track {
+    /// The two cells either side of the bar, and how many cells they cost.
+    pub const fn ends(self) -> Option<(&'static str, &'static str)> {
+        match self {
+            Track::Plain => None,
+            Track::Square => Some(("[", "]")),
+            Track::Round => Some(("(", ")")),
+            Track::Rail => Some(("▏", "▕")),
+        }
+    }
 }
 
 /// No marker, no weight: the row is told apart by its plate alone.
@@ -258,6 +294,10 @@ pub struct Anatomy {
     /// that cut their corners in earnest — `clip-path` five times or more
     /// — so a theme that never cuts a corner does not grow one here.
     pub hud: bool,
+
+    /// How this register closes the ends of a progress bar, from its own
+    /// `.kp-progress` rule [Track].
+    pub meter: Track,
     /// What moves: the texture, the alarm, the spinner.
     pub fx: Fx,
 }
@@ -339,6 +379,7 @@ pub const FORMAL: Anatomy = Anatomy {
     // rail: a plain rule; this register paints no gradient onto one. hud: clip-path 0 times.
     rail: Rule::Thin,
     hud: false,
+    meter: Track::Plain,
 };
 
 /// cyberpunk. Signal yellow on a void; square or notched; a machine voice.
@@ -406,7 +447,6 @@ pub const CYBERPUNK: Anatomy = Anatomy {
     table: TableHead {
         ink: Tone::Accent,
         uppercase: true,
-        spaced: true,
         modifier: Modifier::empty(),
         rule_tone: Tone::Primary,
         ..BASE_HEAD
@@ -414,6 +454,7 @@ pub const CYBERPUNK: Anatomy = Anatomy {
     // rail: a plain rule; this register paints no gradient onto one. hud: clip-path 42 times.
     rail: Rule::Thin,
     hud: true,
+    meter: Track::Plain,
 };
 
 /// terminal. A phosphor CRT that accepts a terminal's constraints.
@@ -468,13 +509,13 @@ pub const TERMINAL: Anatomy = Anatomy {
     // 400 — the only register that takes the base weight back off.
     table: TableHead {
         uppercase: true,
-        spaced: true,
         modifier: Modifier::empty(),
         ..BASE_HEAD
     },
     // rail: a gradient on a rule, as this register paints one. hud: clip-path 0 times.
     rail: Rule::Gradient,
     hud: false,
+    meter: Track::Square,
 };
 
 /// light. Proposed in research/ratatui/ANATOMY_PROPOSAL.md, which cites the
@@ -516,6 +557,7 @@ pub const LIGHT: Anatomy = Anatomy {
     // rail: a plain rule; this register paints no gradient onto one. hud: clip-path 5 times.
     rail: Rule::Thin,
     hud: true,
+    meter: Track::Plain,
 };
 
 /// dark. Proposed in research/ratatui/ANATOMY_PROPOSAL.md, which cites the
@@ -553,6 +595,7 @@ pub const DARK: Anatomy = Anatomy {
     // rail: a plain rule; this register paints no gradient onto one. hud: clip-path 12 times.
     rail: Rule::Thin,
     hud: true,
+    meter: Track::Rail,
 };
 
 /// synthwave. Proposed in research/ratatui/ANATOMY_PROPOSAL.md, which cites the
@@ -594,7 +637,6 @@ pub const SYNTHWAVE: Anatomy = Anatomy {
     table: TableHead {
         ink: Tone::Primary,
         uppercase: true,
-        spaced: true,
         modifier: Modifier::empty(),
         rule: Rule::Gradient,
         ..BASE_HEAD
@@ -602,6 +644,7 @@ pub const SYNTHWAVE: Anatomy = Anatomy {
     // rail: a gradient on a rule, as this register paints one. hud: clip-path 4 times.
     rail: Rule::Gradient,
     hud: false,
+    meter: Track::Square,
 };
 
 /// pastel. Proposed in research/ratatui/ANATOMY_PROPOSAL.md, which cites the
@@ -639,6 +682,7 @@ pub const PASTEL: Anatomy = Anatomy {
     // rail: a plain rule; this register paints no gradient onto one. hud: clip-path 2 times.
     rail: Rule::Thin,
     hud: false,
+    meter: Track::Plain,
 };
 
 /// forest. Proposed in research/ratatui/ANATOMY_PROPOSAL.md, which cites the
@@ -683,6 +727,7 @@ pub const FOREST: Anatomy = Anatomy {
     // rail: a plain rule; this register paints no gradient onto one. hud: clip-path 2 times.
     rail: Rule::Thin,
     hud: false,
+    meter: Track::Rail,
 };
 
 /// high-contrast. Proposed in research/ratatui/ANATOMY_PROPOSAL.md, which cites the
@@ -728,6 +773,7 @@ pub const HIGH_CONTRAST: Anatomy = Anatomy {
     // rail: a plain rule; this register paints no gradient onto one. hud: clip-path 4 times.
     rail: Rule::Thin,
     hud: false,
+    meter: Track::Rail,
 };
 
 /// sepia. Proposed in research/ratatui/ANATOMY_PROPOSAL.md, which cites the
@@ -772,6 +818,7 @@ pub const SEPIA: Anatomy = Anatomy {
     // rail: a plain rule; this register paints no gradient onto one. hud: clip-path 0 times.
     rail: Rule::Thin,
     hud: false,
+    meter: Track::Plain,
 };
 
 /// blueprint. Proposed in research/ratatui/ANATOMY_PROPOSAL.md, which cites the
@@ -817,6 +864,7 @@ pub const BLUEPRINT: Anatomy = Anatomy {
     // rail: a plain rule; this register paints no gradient onto one. hud: clip-path 1 times.
     rail: Rule::Thin,
     hud: false,
+    meter: Track::Rail,
 };
 
 /// solstice. Proposed in research/ratatui/ANATOMY_PROPOSAL.md, which cites the
@@ -858,6 +906,7 @@ pub const SOLSTICE: Anatomy = Anatomy {
     // rail: a plain rule; this register paints no gradient onto one. hud: clip-path 5 times.
     rail: Rule::Thin,
     hud: true,
+    meter: Track::Plain,
 };
 
 /// brutalism. Proposed in research/ratatui/ANATOMY_PROPOSAL.md, which cites the
@@ -897,13 +946,13 @@ pub const BRUTALISM: Anatomy = Anatomy {
         plate: Tone::Secondary,
         ink: Tone::SecondaryInk,
         uppercase: true,
-        spaced: true,
         rule: Rule::Double,
         ..BASE_HEAD
     },
     // rail: a plain rule; this register paints no gradient onto one. hud: clip-path 0 times.
     rail: Rule::Thin,
     hud: false,
+    meter: Track::Square,
 };
 
 /// deco. Proposed in research/ratatui/ANATOMY_PROPOSAL.md, which cites the
@@ -942,13 +991,13 @@ pub const DECO: Anatomy = Anatomy {
     table: TableHead {
         ink: Tone::Primary,
         uppercase: true,
-        spaced: true,
         modifier: Modifier::empty(),
         ..BASE_HEAD
     },
     // rail: a plain rule; this register paints no gradient onto one. hud: clip-path 1 times.
     rail: Rule::Thin,
     hud: false,
+    meter: Track::Square,
 };
 
 /// phantom. Proposed in research/ratatui/ANATOMY_PROPOSAL.md, which cites the
@@ -987,7 +1036,6 @@ pub const PHANTOM: Anatomy = Anatomy {
     table: TableHead {
         ink: Tone::Ink,
         uppercase: true,
-        spaced: true,
         rule: Rule::Double,
         rule_tone: Tone::Ink,
         ..BASE_HEAD
@@ -995,6 +1043,7 @@ pub const PHANTOM: Anatomy = Anatomy {
     // rail: a plain rule; this register paints no gradient onto one. hud: clip-path 13 times.
     rail: Rule::Thin,
     hud: true,
+    meter: Track::Square,
 };
 
 /// shade-light. Proposed in research/ratatui/ANATOMY_PROPOSAL.md, which cites the
@@ -1037,6 +1086,7 @@ pub const SHADE_LIGHT: Anatomy = Anatomy {
     // rail: a plain rule; this register paints no gradient onto one. hud: clip-path 3 times.
     rail: Rule::Thin,
     hud: false,
+    meter: Track::Plain,
 };
 
 /// shade-dark. Proposed in research/ratatui/ANATOMY_PROPOSAL.md, which cites the
@@ -1076,6 +1126,7 @@ pub const SHADE_DARK: Anatomy = Anatomy {
     // rail: a plain rule; this register paints no gradient onto one. hud: clip-path 0 times.
     rail: Rule::Thin,
     hud: false,
+    meter: Track::Plain,
 };
 
 /// retro. Proposed in research/ratatui/ANATOMY_PROPOSAL.md, which cites the
@@ -1117,6 +1168,7 @@ pub const RETRO: Anatomy = Anatomy {
     // rail: a gradient on a rule, as this register paints one. hud: clip-path 8 times.
     rail: Rule::Gradient,
     hud: true,
+    meter: Track::Square,
 };
 
 /// grotesk. Proposed in research/ratatui/ANATOMY_PROPOSAL.md, which cites the
@@ -1162,6 +1214,7 @@ pub const GROTESK: Anatomy = Anatomy {
     // rail: a plain rule; this register paints no gradient onto one. hud: clip-path 0 times.
     rail: Rule::Thin,
     hud: false,
+    meter: Track::Square,
 };
 
 /// lapis. Proposed in research/ratatui/ANATOMY_PROPOSAL.md, which cites the
@@ -1197,12 +1250,12 @@ pub const LAPIS: Anatomy = Anatomy {
     // lapis-register.css: the mono face, uppercase, letter-spacing .06em.
     table: TableHead {
         uppercase: true,
-        spaced: true,
         ..BASE_HEAD
     },
     // rail: a plain rule; this register paints no gradient onto one. hud: clip-path 6 times.
     rail: Rule::Thin,
     hud: true,
+    meter: Track::Rail,
 };
 
 /// nostromo. Proposed in research/ratatui/ANATOMY_PROPOSAL.md, which cites the
@@ -1242,12 +1295,12 @@ pub const NOSTROMO: Anatomy = Anatomy {
     // letter-spacing .08em.
     table: TableHead {
         uppercase: true,
-        spaced: true,
         ..BASE_HEAD
     },
     // rail: a plain rule; this register paints no gradient onto one. hud: clip-path 4 times.
     rail: Rule::Thin,
     hud: false,
+    meter: Track::Round,
 };
 
 /// titanium. Proposed in research/ratatui/ANATOMY_PROPOSAL.md, which cites the
@@ -1286,6 +1339,7 @@ pub const TITANIUM: Anatomy = Anatomy {
     // rail: a plain rule; this register paints no gradient onto one. hud: clip-path 6 times.
     rail: Rule::Thin,
     hud: true,
+    meter: Track::Rail,
 };
 
 /// Every theme's anatomy, in `themes/order.json`'s order, so `ThemeId`

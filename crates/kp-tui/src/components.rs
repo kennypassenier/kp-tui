@@ -225,9 +225,9 @@ impl Widget for Field<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
         let t = &self.theme.c;
         let style = if self.focused {
-            Style::new().bg(t.card)
+            ground(self.theme, t.card)
         } else {
-            Style::new().bg(t.background)
+            ground(self.theme, t.background)
         };
         Paragraph::new(Line::from(self.spans()))
             .style(style)
@@ -293,7 +293,14 @@ impl<'a> Choice<'a> {
         ]
     }
 
-    /// The label, padded to `width`, in the register's own label dress.
+    /// The label, padded to `width`, in the register's own label dress —
+    /// and never closer than two cells to what follows it.
+    ///
+    /// The padding cannot be the whole story: a register that prefixes its
+    /// labels writes `/// NIGHTLY RUN`, which is longer than the column,
+    /// and the value's plate then stood against the last letter. Kenny,
+    /// 2026-09-19: "bij het instellingen scherm hangt de gele box rond
+    /// 03:00 tegen nightly run, waar dat bij homelab rust niet zo is."
     pub fn label_spans(&self, width: usize) -> Vec<Span<'static>> {
         let (t, a) = (&self.theme.c, self.theme.a);
         let label = if a.uppercase_labels {
@@ -302,7 +309,7 @@ impl<'a> Choice<'a> {
             self.label.to_string()
         };
         let text = format!("{}{label}", a.label_prefix);
-        let pad = width.saturating_sub(text.chars().count());
+        let pad = width.saturating_sub(text.chars().count()).max(2);
         vec![Span::styled(
             format!("{text}{}", " ".repeat(pad)),
             Style::new().fg(t.muted_foreground),
@@ -314,7 +321,7 @@ impl Widget for Choice<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
         let line = Line::from([self.label_spans(14), self.value_spans()].concat());
         Paragraph::new(line)
-            .style(Style::new().bg(self.theme.c.card))
+            .style(ground(self.theme, self.theme.c.card))
             .render(area, buf);
     }
 }
@@ -475,8 +482,11 @@ impl Widget for Meter<'_> {
             return self.render_across(text, area, buf);
         }
         let reading = format!("{:>3.0}%", self.value * 100.0);
+        // The ends this register closes its bar with, if it closes them.
+        let ends = a.meter.ends();
+        let end_w = if ends.is_some() { 2 } else { 0 };
         // label … bar … reading, with the bar taking what is left.
-        let text_w = label.chars().count() as u16 + reading.chars().count() as u16 + 2;
+        let text_w = label.chars().count() as u16 + reading.chars().count() as u16 + 2 + end_w;
         let bar_w = area.width.saturating_sub(text_w);
         // An eighth of a cell at a time: the bar lands on the value it was
         // given instead of the nearest whole cell, which at forty cells is
@@ -490,6 +500,12 @@ impl Widget for Meter<'_> {
             format!("{label} "),
             Style::new().fg(t.muted_foreground),
         )];
+        if let Some((open, _)) = ends {
+            spans.push(Span::styled(
+                open.to_string(),
+                Style::new().fg(t.border_strong).bg(t.card),
+            ));
+        }
         // Painted as background rather than block glyphs: a solid bar reads
         // at any font, and the theme's own colour does the work.
         spans.push(Span::styled(
@@ -505,6 +521,12 @@ impl Widget for Meter<'_> {
             rest -= 1;
         }
         spans.push(Span::styled(" ".repeat(rest), Style::new().bg(t.muted)));
+        if let Some((_, close)) = ends {
+            spans.push(Span::styled(
+                close.to_string(),
+                Style::new().fg(t.border_strong).bg(t.card),
+            ));
+        }
         spans.push(Span::styled(
             format!(" {reading}"),
             Style::new().fg(if self.value >= self.danger_at {
@@ -513,7 +535,9 @@ impl Widget for Meter<'_> {
                 t.foreground
             }),
         ));
-        Paragraph::new(Line::from(spans)).render(area, buf);
+        Paragraph::new(Line::from(spans))
+            .style(ground(self.theme, t.card))
+            .render(area, buf);
     }
 }
 
@@ -772,7 +796,7 @@ impl Widget for LogPane<'_> {
         if bar_rows == 1 {
             let bar = Rect { height: 1, ..inner };
             Paragraph::new(self.source_bar())
-                .style(Style::new().bg(c.card))
+                .style(ground(self.theme, c.card))
                 .render(bar, buf);
         }
         let body = Rect {
@@ -811,7 +835,7 @@ impl Widget for LogPane<'_> {
             })
             .collect();
         Paragraph::new(lines)
-            .style(Style::new().bg(c.card))
+            .style(ground(self.theme, c.card))
             .render(body, buf);
 
         // The scrollbar homelab's three copies do without: where the view
@@ -1023,7 +1047,7 @@ impl Widget for AlarmPanel<'_> {
             .borders(Borders::ALL)
             .border_set(th.a.border)
             .border_style(Style::new().fg(th.depth.resolve(Role::Line, mix(p.card, frame, t))))
-            .style(Style::new().bg(th.c.card));
+            .style(ground(th, th.c.card));
         let inner = block.inner(area);
         block.render(area, buf);
         let head = Style::new()
@@ -1187,7 +1211,7 @@ impl Widget for Stepper<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
         let line = self.line();
         Paragraph::new(line)
-            .style(Style::new().bg(self.theme.c.background))
+            .style(ground(self.theme, self.theme.c.background))
             .render(area, buf);
     }
 }
@@ -1387,25 +1411,40 @@ impl Widget for SelectList<'_> {
             .map(|i| self.row(i))
             .collect();
         let plate = self.theme.c.card;
+        // The whole list first, so the rows a short list does not fill are
+        // the card's too [Kenny, 2026-09-19: every cell the theme's].
+        Paragraph::new("")
+            .style(Style::new().fg(self.theme.c.card_foreground).bg(plate))
+            .render(area, buf);
         for (n, row) in rows.into_iter().enumerate() {
             let y = area.y + n as u16;
             // The selected row's plate runs the width of the list, not the
             // width of its label.
-            let bg = if self.offset + n == self.selected {
+            let selected = self.offset + n == self.selected;
+            let bg = if selected {
                 self.theme
                     .tone(self.theme.a.selection.plate)
                     .unwrap_or(plate)
             } else {
                 plate
             };
-            Paragraph::new(row).style(Style::new().bg(bg)).render(
-                Rect {
-                    y,
-                    height: 1,
-                    ..area
-                },
-                buf,
-            );
+            let fg = if selected {
+                self.theme
+                    .tone(self.theme.a.selection.ink)
+                    .unwrap_or(self.theme.c.card_foreground)
+            } else {
+                self.theme.c.card_foreground
+            };
+            Paragraph::new(row)
+                .style(Style::new().fg(fg).bg(bg))
+                .render(
+                    Rect {
+                        y,
+                        height: 1,
+                        ..area
+                    },
+                    buf,
+                );
         }
     }
 }
@@ -1754,9 +1793,8 @@ impl<'a> Facts<'a> {
 
 impl Widget for Facts<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        let bg = self.theme.c.card;
         Paragraph::new(self.lines())
-            .style(Style::new().bg(bg))
+            .style(ground(self.theme, self.theme.c.card))
             .render(area, buf);
     }
 }
@@ -2011,15 +2049,13 @@ impl<'a> DataTable<'a> {
                 } else {
                     c.head.to_string()
                 };
-                // The tracking goes on only where the column has room for
-                // it — the same rule a button's label follows: a heading
-                // that does not fit loses its spacing before its tail.
-                let spaced: String = head.chars().flat_map(|ch| [ch, ' ']).collect();
-                let head = if h.spaced && spaced.trim_end().chars().count() <= c.width as usize {
-                    spaced.trim_end().to_string()
-                } else {
-                    head
-                };
+                // No tracking on a column heading. Fourteen registers set
+                // `letter-spacing` on their table headers and the terminal
+                // carried it over as a space between every letter, which
+                // reads as a different word: Kenny, 2026-09-19, seeing
+                // `A P P S` and `S T A T E` — "de tabelnamen moeten zonder
+                // spaties tussen". On a page a tenth of an em is tracking;
+                // in a cell grid the smallest step is a whole character.
                 Span::styled(pad(&head, c.width, c.right), style)
             })
             .collect::<Vec<_>>();
@@ -2081,7 +2117,11 @@ fn pad_spans(cell: &Line<'static>, width: u16, right: bool) -> Vec<Span<'static>
         }
     }
     if used < width {
-        let gap = Span::raw(" ".repeat(width - used));
+        // The padding carries the style of the span it follows, so a cell
+        // never leaves a run of spaces to whatever the terminal defaults to
+        // (Kenny, 2026-09-19: "alle kleur moet altijd uit ons thema komen").
+        let style = cell.spans.last().map(|s| s.style).unwrap_or_default();
+        let gap = Span::styled(" ".repeat(width - used), style);
         if right {
             out.insert(0, gap);
         } else {
@@ -2089,6 +2129,34 @@ fn pad_spans(cell: &Line<'static>, width: u16, right: bool) -> Vec<Span<'static>
         }
     }
     out
+}
+
+/// The style a widget paints its whole area with: a plate and the ink that
+/// belongs to it.
+///
+/// Kenny, 2026-09-19: "Elke tekst op elke pane moet gestyled zijn volgens
+/// onze stylingkleuren … alle kleur moet altijd uit ons thema komen." A
+/// widget that sets only a background leaves every cell it does not write a
+/// glyph into on `Color::Reset`, which is the terminal's colour and not the
+/// theme's — and a short table or list is mostly such cells.
+fn ground(theme: &Theme, plate: Color) -> Style {
+    let c = &theme.c;
+    let ink = if plate == c.card {
+        c.card_foreground
+    } else if plate == c.popover {
+        c.popover_foreground
+    } else if plate == c.background {
+        c.foreground
+    } else if plate == c.secondary {
+        c.secondary_foreground
+    } else if plate == c.muted {
+        c.muted_foreground
+    } else {
+        // A plate the theme has no ink named for: the body ink, which is
+        // the one colour that reads on every surface this palette has.
+        c.foreground
+    };
+    Style::new().fg(ink).bg(plate)
 }
 
 fn pad(text: &str, width: u16, right: bool) -> String {
@@ -2113,8 +2181,13 @@ impl Widget for DataTable<'_> {
         let th = self.theme;
         let plate = th.c.card;
         let head_row = Rect { height: 1, ..area };
+        let h = th.a.table;
         Paragraph::new(self.header())
-            .style(Style::new().bg(plate))
+            .style(
+                Style::new()
+                    .fg(th.tone(h.ink).unwrap_or(th.c.muted_foreground))
+                    .bg(th.tone(h.plate).unwrap_or(plate)),
+            )
             .render(head_row, buf);
 
         if area.height >= 2 {
@@ -2130,6 +2203,11 @@ impl Widget for DataTable<'_> {
             height: area.height.saturating_sub(2),
             ..area
         };
+        // The whole body first, so the rows a short table does not fill are
+        // the card's as well and not the terminal's.
+        Paragraph::new("")
+            .style(Style::new().fg(th.c.card_foreground).bg(plate))
+            .render(body, buf);
         let lines: Vec<Line<'static>> = self
             .rows
             .iter()
@@ -2155,7 +2233,7 @@ impl Widget for DataTable<'_> {
                         break;
                     }
                     Paragraph::new(line.clone())
-                        .style(Style::new().bg(plate))
+                        .style(Style::new().fg(th.c.card_foreground).bg(plate))
                         .render(
                             Rect {
                                 y: body.y + n as u16,

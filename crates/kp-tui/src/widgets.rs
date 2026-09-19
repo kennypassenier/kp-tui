@@ -6,7 +6,7 @@ use ratatui::{
     layout::{Alignment, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph, Tabs, Widget},
+    widgets::{Block, Borders, Padding, Paragraph, Tabs, Widget},
 };
 
 use crate::anatomy::{ButtonFace, Reveal};
@@ -123,6 +123,13 @@ impl<'a> Panel<'a> {
             .border_set(set)
             .border_style(Style::new().fg(line))
             .title(title)
+            // A cell either side, so nothing inside the panel stands
+            // against its own frame. Kenny, 2026-09-19: "er kan wat marge
+            // tussen de lijnen die een scherm omringen en de inhoud, juist
+            // een beetje, niet te veel, maar dingen mogen niet tegen random
+            // plakken." One cell is the smallest step a grid has, and the
+            // web's own card carries `padding: 1rem` where this carries one.
+            .padding(Padding::horizontal(1))
             .style(
                 Style::new()
                     .bg(coming(Role::Surface, p.card))

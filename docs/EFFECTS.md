@@ -28,6 +28,7 @@ the same mechanic with the theme holding the knobs.
 | `braille_spark(data, width)` | already `dashboard`'s own chart | — |
 | `◂ value ▸` written inline in the settings tab, with a hand-picked cyan on the row in hand | `components::Choice` | The marks are the package's own `var(--kp-glyph-closed, '▸')` and its mirror — no register overrides that token, measured across all 22 registers. What is per-theme is the plate the value in hand wears, and that is `Selection`, the same one a list row stands on |
 | `●` drawn by hand beside a state word | `Badge::state` | The tone is the caller's, the ink is the theme's: `Theme::ink` picks one that reads on the card it sits on [fix-1] |
+| a progress bar drawn the same way in every theme | `Meter` + `anatomy::Track` | How the register closes the bar's ends, read from its own `.kp-progress` rule across all 22: eight draw no border and get none, seven set `border-radius: 0` and get `[ ]`, nostromo's pill radius gets `( )`, and six between get the thin rails `▏ ▕` |
 | `load_color(pct)` | already `Meter::thresholds` | `--success`, `--warning`, `--destructive` |
 
 Two homelab effects were already here before this step (`decrypt`,
