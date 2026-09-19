@@ -74,8 +74,9 @@ plus its anatomy), and the widgets:
 
 ## Status
 
-Started 2026-09-17. The crates build, 64 tests pass, clippy is clean, and
-CI runs fmt, clippy and the suite on every push.
+Started 2026-09-17, first release `0.1.0` on 2026-09-20
+([CHANGELOG.md](CHANGELOG.md)). The crates build, 64 tests pass, clippy is
+clean, and CI runs fmt, clippy and the suite on every push.
 
 The demo draws eleven screens — `dashboard`, `components`, `console`,
 `effects`, `fleet`, `ops`, `settings`, `logs`, `deploy`, `doctor`,
