@@ -99,9 +99,6 @@ pub enum Screen {
     /// homelab's own boot splash, rebuilt on this crate — the seventh,
     /// and the last of its nine screens [docs/HOMELAB_PROOF.md].
     Splash,
-    /// One of the twenty-five design directions, five per rebuilt screen
-    /// [examples/demo/designs.rs]. A picture, not a screen.
-    Design,
 }
 
 pub struct App {
@@ -139,7 +136,6 @@ pub struct App {
     pub source_sel: usize,
     pub field_sel: usize,
     pub asking: bool,
-    pub variant: usize,
     pub stream: kp_tui::logs::LogBuffer,
     /// Which step of the wizard the breadcrumb shows.
     pub step: usize,
@@ -200,7 +196,6 @@ impl App {
             source_sel: 0,
             field_sel: 0,
             asking: true,
-            variant: 0,
             stream: crate::logstream::feed(),
             step: 2,
             config_path,
@@ -396,7 +391,6 @@ impl App {
                     Screen::Deploy => Screen::Doctor,
                     Screen::Doctor => Screen::Splash,
                     Screen::Splash => Screen::Dashboard,
-                    Screen::Design => Screen::Dashboard,
                 };
                 self.reveal_ms = 0;
             }
@@ -526,17 +520,6 @@ impl App {
         if self.screen == Screen::Splash {
             frame.render_widget(Block::new().style(self.theme.base()), frame.area());
             crate::splash::draw(frame, &self.theme, self.reveal_ms, self.config.motion);
-            return;
-        }
-        if self.screen == Screen::Design {
-            frame.render_widget(Block::new().style(self.theme.base()), frame.area());
-            crate::designs::draw(
-                frame,
-                &self.theme,
-                self.variant,
-                self.reveal_ms,
-                self.config.motion,
-            );
             return;
         }
         if self.screen == Screen::Deploy {

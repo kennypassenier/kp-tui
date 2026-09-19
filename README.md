@@ -85,11 +85,11 @@ client in [docs/HOMELAB_PROOF.md](docs/HOMELAB_PROOF.md). Eight of
 homelab's nine are rebuilt; the shell tab is a terminal inside a terminal
 and is left alone.
 
-Beside them are twenty-five design directions, five per rebuilt screen:
-`--screen design --variant N` for one, and
-`cargo run -p kp-compare -- --designs` for the whole gallery with the
-paragraph that belongs to each. Kenny picked one per screen on 2026-09-19
-and unpicked one of them the next day, so four of the five are what the
-rebuilt screens draw — card grid, grouped cards with a diff under them, a
-density band, and two panes — and the dashboard is homelab's own layout
-again.
+Twenty-five design directions, five per rebuilt screen, were drawn on the
+way there. Kenny picked one per screen on 2026-09-19 and unpicked one of
+them the next day, so four of the five are what the rebuilt screens draw —
+card grid, grouped cards with a diff under them, a density band, and two
+panes — and the dashboard is homelab's own layout again. The twenty that
+were not chosen are kept as pictures in
+[docs/archive/ontwerpen-2026-09-19.html](docs/archive/ontwerpen-2026-09-19.html)
+rather than as code nothing calls.

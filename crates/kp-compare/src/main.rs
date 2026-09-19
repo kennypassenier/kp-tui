@@ -90,9 +90,6 @@ fn main() -> std::io::Result<()> {
         .and_then(|(w, h)| Some((w.parse().ok()?, h.parse().ok()?)))
         .unwrap_or((104u16, 28u16));
 
-    if args.iter().any(|a| a == "--designs") {
-        return designs(&theme, cols, rows, &out);
-    }
     // `--show homelab:<keys>,screen:<name>,design:<n>` lays any number of
     // panes side by side in one row: for looking at a direction, the
     // screen it would replace and the original all at once.
@@ -116,52 +113,8 @@ fn main() -> std::io::Result<()> {
     Ok(())
 }
 
-/// The twenty-five design directions, each as a picture with its paragraph.
-///
-/// The demo owns the table; this asks for it (`--designs`) rather than
-/// keeping a second copy that could drift from it.
-fn designs(theme: &str, cols: u16, rows: u16, out: &str) -> std::io::Result<()> {
-    let listed = Command::new("cargo")
-        .args(["run", "--quiet", "--example", "demo", "--", "--designs"])
-        .output()?
-        .stdout;
-    let listed = String::from_utf8_lossy(&listed).to_string();
-    let mut sections = String::new();
-    let mut screen_now = String::new();
-    let mut count = 0;
-    for line in listed.lines() {
-        let mut parts = line.splitn(4, '\t');
-        let (Some(n), Some(screen), Some(name), Some(idea)) =
-            (parts.next(), parts.next(), parts.next(), parts.next())
-        else {
-            continue;
-        };
-        if screen != screen_now {
-            sections.push_str(&format!("\n<h2>{}</h2>", heading(screen)));
-            screen_now = screen.to_string();
-        }
-        let shot = shot_at(
-            &["--screen", "design", "--variant", n],
-            theme,
-            cols,
-            rows,
-            "2600",
-        );
-        sections.push_str(&format!(
-            "\n<section class=\"design\">\n  <h3>{}. {}</h3>\n  <p class=\"idea\">{}</p>\n  {}\n</section>",
-            count + 1,
-            name,
-            idea,
-            shot
-        ));
-        count += 1;
-    }
-    std::fs::write(out, designs_page(&sections, theme))?;
-    println!("{out}: {count} design(s) at {cols}x{rows}");
-    Ok(())
-}
-
-/// Any number of panes in one row, named by a spec.
+/// Any number of panes in one row, named by a spec: `homelab:<keys>` drives
+/// the real client, `screen:<name>` shoots the rebuild of that screen.
 fn side_by_side(
     spec: &str,
     homelab: &str,
@@ -179,16 +132,6 @@ fn side_by_side(
                 "Homelab Rust — de echte client".to_string(),
                 in_pty(homelab, &["tui", "--offline"], &unescape(arg), cols, rows),
             ),
-            "design" => (
-                format!("kp-tui — ontwerprichting {arg}, zoals getoond"),
-                shot_at(
-                    &["--screen", "design", "--variant", arg],
-                    theme,
-                    cols,
-                    rows,
-                    "2600",
-                ),
-            ),
             _ => (
                 format!("kp-tui — {arg}, zoals nu gebouwd"),
                 shot_at(&["--screen", arg], theme, cols, rows, "2600"),
@@ -205,46 +148,11 @@ fn side_by_side(
     Ok(())
 }
 
-/// `\t` in a spec is a tab, so a key sequence can be typed on a command
-/// line.
+/// `\t` in a spec is a tab, so a key sequence can be typed on a command line.
 fn unescape(keys: &str) -> String {
     keys.replace("\\t", "\t")
 }
 
-fn heading(screen: &str) -> &'static str {
-    match screen {
-        "stacks" => "De stacks",
-        "dashboard" => "Het dashboard",
-        "settings" => "De instellingen",
-        "logs" => "Het logboek",
-        _ => "Het deploy-venster",
-    }
-}
-
-fn designs_page(sections: &str, theme: &str) -> String {
-    format!(
-        r#"<!doctype html><meta charset="utf-8"><title>Vijf ontwerpen per scherm</title>
-<style>
- body {{ background:#0b0f12; color:#d0d0d0; font-family:"Adwaita Sans",system-ui,sans-serif; margin:0; padding:24px 16px 48px }}
- h1 {{ font-weight:500; font-size:22px; margin:0 0 4px }}
- h2 {{ font-weight:500; font-size:18px; margin:40px 0 4px; color:#e6e6e6; border-bottom:1px solid #1d262c; padding-bottom:6px }}
- h3 {{ font-weight:500; font-size:15px; margin:22px 0 6px; color:#e6e6e6 }}
- p.lead, p.idea {{ color:#9aa4ad; max-width:78ch; line-height:1.65; margin:0 0 10px }}
- pre.shot {{ font-family:"FiraCode Nerd Font Mono","Adwaita Mono","DejaVu Sans Mono",monospace;
-   font-size:12px; line-height:1.15; margin:0; padding:10px; border:1px solid #1d262c; border-radius:8px;
-   overflow-x:auto; white-space:pre; background:#0b0f12; width:max-content; max-width:100% }}
-</style>
-<h1>Vijf ontwerpen per scherm, vijfentwintig in totaal</h1>
-<p class="lead">Elk beeld is een richting, geen scherm: het toont het idee op de maat die het idee nodig heeft,
-met de voorbeelden van de herbouw ernaast. Niets hiervan zit aan een toets — dat is de bedoeling, want een
-richting die je niet kiest heeft dan maar één tekenfunctie gekost. Alles in thema {theme}; geen van deze
-beelden noemt zelf een kleur.</p>
-{sections}
-"#
-    )
-}
-
-/// One shot of the demo, replayed through the emulator.
 fn shot_of(extra: &[&str], theme: &str, cols: u16, rows: u16) -> String {
     shot_at(extra, theme, cols, rows, "1200")
 }

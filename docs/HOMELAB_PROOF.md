@@ -351,10 +351,13 @@ built.
 cargo run -p kp-compare -- --designs --theme cyberpunk --size 96x14 --out ontwerpen.html
 ```
 
-The twenty-five live in `crates/kp-tui/examples/demo/designs.rs`, one draw
-function each, and none is wired to a key — a direction nobody chooses cost
-one function. The demo prints the table (`--designs`) and `kp-compare` lays
-it out, so the paragraphs have one home rather than two that drift.
+The twenty-five lived in `crates/kp-tui/examples/demo/designs.rs`, one draw
+function each. They are gone from the code since 2026-09-20 — Kenny chose
+"de twintig richtingen opruimen" — and the gallery they drew is kept as
+what it always was, a page of pictures:
+[docs/archive/ontwerpen-2026-09-19.html](archive/ontwerpen-2026-09-19.html),
+25 directions at 96×14 in cyberpunk. That page is the record; 1356 lines of
+Rust that nothing called are not.
 
 | Screen | The five |
 | --- | --- |
@@ -364,8 +367,10 @@ it out, so the paragraphs have one home rather than two that drift.
 | log stream | density band · grouped sources · severity focus · time gutter · stream and detail |
 | deploy | step rail · two panes · gate cards · full status · docked bar |
 
-Every one of them still names no colour of its own, and every one is drawn
-with the widgets the five proofs built.
+Every one of them still named no colour of its own, and every one was drawn
+with the widgets the five proofs built. Four of the five chosen directions
+are in the screens themselves; the dashboard's was chosen and then unchosen,
+and its screen is homelab's own layout again.
 
 ## The five chosen directions, built, 2026-09-19
 
