@@ -27,7 +27,7 @@ columns and quietly break that comparison.
 Upgrading is two commands and one edit:
 
 ```sh
-gh release download v7.1.0 --repo kennypassenier/kp-themes \
+gh release download v7.2.0 --repo kennypassenier/kp-themes \
     --pattern kp-tui-palette.rs --dir crates/kp-tui-palette/vendor --clobber
 sha256sum crates/kp-tui-palette/vendor/kp-tui-palette.rs
 ```
@@ -75,8 +75,9 @@ plus its anatomy), and the widgets:
 ## Status
 
 Started 2026-09-17, first release `0.1.0` on 2026-09-20
-([CHANGELOG.md](CHANGELOG.md)). The crates build, 64 tests pass, clippy is
-clean, and CI runs fmt, clippy and the suite on every push.
+([CHANGELOG.md](CHANGELOG.md)), pinned to the kp-themes 7.1.0 palette. The
+crates build, 64 tests pass, clippy is clean, and CI runs fmt, clippy and
+the suite on every push.
 
 The demo draws eleven screens — `dashboard`, `components`, `console`,
 `effects`, `fleet`, `ops`, `settings`, `logs`, `deploy`, `doctor`,
