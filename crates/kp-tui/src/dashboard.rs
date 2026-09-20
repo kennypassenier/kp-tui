@@ -692,7 +692,7 @@ fn draw_logs(frame: &mut Frame, d: &Dashboard, v: &View, area: Rect) {
         .into_iter()
         .map(|line| {
             Line::from(vec![
-                Span::styled(format!("{} ", line.time), muted),
+                Span::styled(format!("{} ", line.to_the_second()), muted),
                 Span::styled(format!("{} ", line.host), Style::new().fg(c.border_strong)),
                 Span::styled(format!("{} ", line.unit), Style::new().fg(c.primary)),
                 Span::styled(line.severity.tag(), severity_style(th, line.severity)),

@@ -106,6 +106,17 @@ impl LogLine {
     /// The line's own timestamp in milliseconds past midnight, read back
     /// out of the `HH:MM:SS.mmm` string it was handed. `None` when the
     /// feed wrote something else.
+    /// The stamp as a reader wants it: hours, minutes, seconds and
+    /// nothing after them (Kenny, 2026-09-20: "na seconden moet er niks
+    /// komen, geen duizendsten. Dat is onwenselijk en vertroebeld het
+    /// beeld"). The thousandths stay inside the line, unread by any
+    /// renderer, because `buckets` splits the band by real time and a
+    /// feed writing 120 to 820 ms apart would otherwise fall into one
+    /// bucket per second [gap-14].
+    pub fn to_the_second(&self) -> &str {
+        self.time.split('.').next().unwrap_or(&self.time)
+    }
+
     pub fn at_ms(&self) -> Option<u64> {
         let (hms, ms) = self.time.split_once('.')?;
         let mut parts = hms.split(':');

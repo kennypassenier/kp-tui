@@ -2002,7 +2002,7 @@ fn panning_sideways_moves_the_message_and_leaves_the_stamp_where_it_is() {
     assert_eq!(buffer.pan(), 16);
     let after = read(&buffer);
     assert!(
-        after.contains("09:41:02.118") && after.contains("web"),
+        after.contains("09:41:02") && after.contains("web"),
         "the stamp and the unit stay put: {after}"
     );
     assert!(
@@ -2051,4 +2051,32 @@ fn a_theme_answers_for_its_own_ramp() {
         "22 registers, {} distinct ramps",
         seen.len()
     );
+}
+
+/// Hours, minutes, seconds and nothing after them — Kenny, 2026-09-20:
+/// "na seconden moet er niks komen, geen duizendsten. Dat is onwenselijk
+/// en vertroebeld het beeld. Dus doe dat stuk er overal af." The
+/// thousandths stay inside the line, where `buckets` reads them.
+#[test]
+fn a_stamp_is_drawn_to_the_second_and_keeps_its_thousandths_inside() {
+    let line = logs::LogLine::new(
+        "09:41:02.118",
+        "pve-01",
+        "web",
+        Severity::Info,
+        "caddy: 200 GET /",
+    );
+    assert_eq!(line.to_the_second(), "09:41:02");
+    assert_eq!(line.at_ms(), Some(((9 * 60 + 41) * 60 + 2) * 1000 + 118));
+
+    let th = Theme::new(ThemeId::from_name("dark").unwrap(), ColorDepth::TrueColor);
+    let mut buffer = LogBuffer::new(8);
+    buffer.push(line);
+    let mut buf = Buffer::empty(Rect::new(0, 0, 60, 3));
+    LogPane::new(&th, "Log", &buffer)
+        .live(false)
+        .render(buf.area, &mut buf);
+    let drawn: String = (0..60).map(|x| buf[(x, 1)].symbol().to_string()).collect();
+    assert!(drawn.contains("09:41:02"), "{drawn}");
+    assert!(!drawn.contains("09:41:02."), "no thousandths: {drawn}");
 }

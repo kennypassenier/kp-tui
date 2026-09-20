@@ -922,7 +922,7 @@ impl Widget for LogPane<'_> {
                 let unit_hue = source_colour(self.theme, &line.unit);
                 Line::from(vec![
                     Span::styled(
-                        format!("{} ", line.time),
+                        format!("{} ", line.to_the_second()),
                         Style::new().fg(c.muted_foreground),
                     ),
                     Span::styled(

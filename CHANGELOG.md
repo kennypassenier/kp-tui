@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+**Changed.** A log stamp is drawn to the second. `LogLine::to_the_second`
+gives the renderer the hours, minutes and seconds and drops the
+thousandths, which stay inside the line where `LogBuffer::buckets` reads
+them — Kenny, 2026-09-20: "na seconden moet er niks komen, geen
+duizendsten. Dat is onwenselijk en vertroebeld het beeld. Dus doe dat
+stuk er overal af." The same stamp shortened in kp-themes' log block on
+the same day.
+
 ## 0.1.0 — 2026-09-20
 
 The first release. kp-tui carries the twenty-two kp-themes registers into a
