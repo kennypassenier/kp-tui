@@ -10,6 +10,11 @@ duizendsten. Dat is onwenselijk en vertroebeld het beeld. Dus doe dat
 stuk er overal af." The same stamp shortened in kp-themes' log block on
 the same day.
 
+**Fixed.** The demo's doctor screen re-runs its checks on enter, as its
+footer said and homelab does; enter used to fall through to the components
+screen's buttons. A failed finding is bold again, as in homelab. The demo's
+own tests now run in the gates [fix-68].
+
 ## 0.1.0 — 2026-09-20
 
 The first release. kp-tui carries the twenty-two kp-themes registers into a

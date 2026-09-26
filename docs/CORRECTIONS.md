@@ -256,13 +256,50 @@ mijn azerty indeling."*
    rather than naming them itself.
 9. **When we review the measure.** At the first release of this crate.
 
+## fix-68 · The doctor's enter pressed a button on another screen
+
+Found by Claude on 2026-09-26, measuring `fix-65-M1` at the sixth rebuilt
+screen: homelab re-runs its checks on `r` and on enter
+(`client/src/tui/model.rs:902`), and the rebuild's footer says
+`enter the same`.
+
+1. **What went wrong.** Enter on the doctor screen fell through to the
+   components screen's button handler, so it set that screen's message and
+   re-ran nothing. The footer promised a key the screen did not have. A
+   failed line was also drawn in the danger ink without homelab's bold.
+2. **Which gate let it through.** None could: the demo's own code carried
+   no tests, and `cargo test` builds an example without running its tests
+   unless the manifest asks for it.
+3. **Where else the same fault sits.** The fault is "a screen compared
+   without its key handler", which is fix-65 again. **Searched with:**
+   every key homelab's `model.rs` binds, read per tab against the demo's
+   `app.rs`; the table is in `docs/HOMELAB_PROOF.md` under "Every key,
+   ticked off".
+4. **How we prevent recurrence.** Enter on the doctor re-runs the checks,
+   a failed line is bold, and fix-65's own fallback is applied: the key
+   inventory per screen, ticked, so a rebuild is not called done until
+   every row is.
+5. **What the remedy costs.** One match arm, one modifier, and the demo's
+   tests now run in the gates (`[[example]] test = true`).
+6. **Who enforces it.** Code: `enter_on_the_doctor_runs_the_checks_again`
+   in the demo, run by `cargo test --workspace`.
+7. **How we measure that it works, and when.** At this commit the test
+   fails against the old code (`left: 1000, right: 0`) and passes against
+   the new. Again at the next screen rebuilt or changed: the question is
+   whether its row in the key inventory was filled before it was called
+   done. Queued as `fix-68-M1`.
+8. **The fallback if it fails.** If the inventory is skipped anyway,
+   `kp-compare` drives each key against both clients and diffs the frames,
+   so a missing binding shows as a difference rather than a reading.
+9. **When we review the measure.** At the next release of this crate.
+
 ## The queue
 
 | ID | What | Status |
 | --- | --- | --- |
 | fix-1-M1 | Does a state word read where it is painted? Measured at the ops screen, 2026-09-19: the contrast test walks 22 themes × 4 tones × 3 surfaces plus the four plates and is green, and Kenny read `up`, `down`, `upd`, `off`, `noenv` and `alloc 134%` on the shot in six registers without asking what they said. | closed |
-| fix-2-M1 | Does a table cell keep the colour of every part it is built from? Measured at this commit (2026-09-19): the test fails against the old code with left Rgb(163, 41, 41), right Rgb(23, 30, 43), and passes against the new; the ops shot draws five hue bars and two badge colours in one row. Again at the third screen this crate draws. | open |
-| fix-64-M1 | Do elements begin at fixed columns? Measured at this commit (2026-09-19): `meters_in_one_group_start_their_bars_in_the_same_column` is green over 22 registers, and the stacks shot shows every card's two bars beginning in the same column. Again at the next screen built from a direction. | open |
+| fix-2-M1 | Does a table cell keep the colour of every part it is built from? Measured at this commit (2026-09-19): the test fails against the old code with left Rgb(163, 41, 41), right Rgb(23, 30, 43), and passes against the new; the ops shot draws five hue bars and two badge colours in one row. Again at the third screen this crate draws. Measured 2026-09-26: the test is green, and of the eight rebuilt screens only fleet and ops draw a `DataTable`; the fleet shot (cyberpunk, true colour) keeps up to seven foreground colours in one row, badges and hue bar intact. No later screen draws a table, so there is nothing further to wait for. | closed |
+| fix-64-M1 | Do elements begin at fixed columns? Measured at this commit (2026-09-19): `meters_in_one_group_start_their_bars_in_the_same_column` is green over 22 registers, and the stacks shot shows every card's two bars beginning in the same column. Again at the next screen built from a direction. Measured 2026-09-26 at doctor, the next screen built after the directions (no screen has been built from a direction since): every finding's sentence begins in the same column behind a four-cell word, and the meters test is green. | closed |
 | fix-65-M1 | Does a rebuilt screen still do everything the original did? Measured at this commit (2026-09-19): the two log tests are green, and the log screen binds all five keys homelab binds plus the level filter it lacks. Again at the sixth rebuilt screen. | open |
 | fix-66-M1 | Does every register's bar carry its own weave, and does it read? Measured at this commit (2026-09-20): `a_bar_is_woven_the_way_its_own_ground_is` is green over 22 registers with all five weaves reached. Again at the first release, on a small font. | open |
-| fix-67-M1 | Can a long log line be read to its end, on Kenny's own keyboard? Measured at this commit (2026-09-20): the pan test is green, and of the demo's bindings only `a` and `q` sit on keys azerty moves. Again at the next key the crate binds. | open |
+| fix-67-M1 | Can a long log line be read to its end, on Kenny's own keyboard? Measured at this commit (2026-09-20): the pan test is green, and of the demo's bindings only `a` and `q` sit on keys azerty moves. Again at the next key the crate binds. Measured 2026-09-26: the next key bound is enter on the doctor screen [fix-68], which azerty does not move. | closed |

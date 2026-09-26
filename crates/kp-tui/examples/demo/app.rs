@@ -351,6 +351,10 @@ impl App {
             KeyCode::Char('t') => self.cycle_theme(),
             KeyCode::Char('m') => self.toggle_motion(),
             KeyCode::Char('r') => self.reveal_ms = 0,
+            // homelab re-runs its checks on `r` and on enter; the doctor's
+            // key hints promise both, so enter must not fall through to the
+            // components screen's buttons [fix-68].
+            KeyCode::Enter if self.screen == Screen::Doctor => self.reveal_ms = 0,
             // The alarm strikes once, so it needs a key to strike again.
             KeyCode::Char('a') => self.alarm_ms = 0,
             KeyCode::Char('p') if self.screen == Screen::Console => {
@@ -1018,3 +1022,19 @@ const CONSOLE_KEYS: &[(&str, &str)] = &[
     ("Esc", "close"),
     ("q", "quit"),
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn enter_on_the_doctor_runs_the_checks_again() {
+        let mut app = App::new(Config::default(), ColorDepth::TrueColor, None);
+        app.screen = Screen::Doctor;
+        app.tick(1_000);
+        app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert_eq!(app.reveal_ms, 0, "enter did not re-run the checks");
+        assert!(app.pressed.is_none(), "enter pressed a components button");
+        assert!(app.message.is_empty());
+    }
+}

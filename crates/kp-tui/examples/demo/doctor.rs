@@ -128,7 +128,8 @@ pub fn draw(frame: &mut Frame, th: &Theme, running: bool, reveal_ms: u32, motion
                 // way homelab decrypts this report as it lands.
                 let text = fx::frame(raw, th.a.reveal, reveal_ms + i as u32 * 40, motion).text;
                 let mut style = Style::new().fg(th.ink(tone, th.id.palette().card));
-                if matches!(tone, Tone::Ink) {
+                // A heading and a failure are bold, as in homelab [fix-68].
+                if matches!(tone, Tone::Ink | Tone::Danger) {
                     style = style.add_modifier(Modifier::BOLD);
                 }
                 // A finding wears the state dot its tone deserves and
