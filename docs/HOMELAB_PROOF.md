@@ -478,3 +478,73 @@ Two things came out of the same message. The bars are no longer painted
 flat: each wears the weave its own register declares for the ground
 [fix-66]. And the log pane scrolls sideways, on keys that sit in the same
 place on azerty as on qwerty [fix-67].
+
+## Every key, ticked off, 2026-09-26
+
+fix-65's fallback, applied because its measurement failed at the sixth
+screen [fix-68]: every key homelab's client binds
+(`client/src/tui/model.rs`, "H" below), read per tab against the demo's
+`examples/demo/app.rs`. ✓ bound and doing the same thing · ✗ missing ·
+**host** only means something against a live host (it sends a command),
+so the demo has nothing to do with it · **footer** marks a key the
+demo's own footer promises. A rebuild is not called done until every ✗
+row is ticked or struck by decision.
+
+The demo's own keys sit on top of all screens: `s` cycles the screens,
+`t` the theme, `m` the motion, `r` replays the reveal, `a` the alarm,
+`q`/Esc quit. Where one of those is a key homelab uses on that tab, the
+demo's wins today, and that is most of the ✗ rows below.
+
+**Global.**
+
+| homelab | does | demo |
+| --- | --- | --- |
+| `q` | quit (H:711) | ✓ |
+| Ctrl+K, Ctrl+P | command palette (H:713) | ✗ only `p` on the console screen; Ctrl+K is read as `k` |
+| palette Enter | runs the action (H:1195) | ✗ closes the palette; Down has no bound |
+| F2 | effect intensity (H:718) | ✗ `m` is a partial stand-in |
+| `h` | help overlay (H:722) | ✗ |
+| Tab, Shift+Tab | next, previous tab (H:723) | ✗ `s` goes forward only |
+| `1`–`6`, `& é " ' ( §` | jump to a tab, azerty-safe (H:733) | ✗ |
+
+**Stacks and dashboard** (fleet, ops, dashboard).
+
+| homelab | does | demo |
+| --- | --- | --- |
+| ↑↓, `j` `k` | select a stack (H:764) | ✓ fleet, ops · ✗ dashboard scrolls the journal instead |
+| `r` | refresh (H:776) | host |
+| `u` `D` `B` `U` `g` `A` `I` `c` `i` `e` | update, deploy, backup, guards, adopt, install, check, incidents, park (H:777–847) | host |
+| `R` | restore, behind a typed-name confirm (H:798) | ✗ the confirm dialog is a view |
+| `p` | plan preview, Enter runs, Esc cancels (H:848) | ✗ the preview is a view |
+| `n` | new-stack wizard (H:849) | ✗ only a mock stepper on the console screen |
+
+**Logs.** Nothing missing: Space, ↑↓ `j` `k`, ←→, `G` End all ✓, and the
+demo adds the level filter and sideways panning [fix-65, fix-67].
+
+**Deploy window.**
+
+| homelab | does | demo |
+| --- | --- | --- |
+| ↑↓ | scroll the feed (H:633) | ✗ **footer** |
+| `a` / `s` while a step asks | yes / no, every other key swallowed (H:623) | ✗ **footer** — `a` is the alarm, `s` leaves the screen |
+| Esc | window to the background, the deploy keeps running (H:635) | ✗ **footer** — Esc quits the demo |
+| Enter when done | close the window (H:644) | ✗ |
+
+**Settings.**
+
+| homelab | does | demo |
+| --- | --- | --- |
+| ↑↓ | field (H:942) | ✓ |
+| ←→ | change the value (H:944) | ✗ **footer** |
+| `a`, `d` | add, delete a retention tier (H:975, H:991) | ✗ **footer** for `a` — it is the alarm |
+| Enter on the webhook row | edit it in place (H:999) | ✗ **footer** |
+| `S` | save (H:1002) | host, but ✗ **footer** — lowercase `s` leaves the screen |
+| `r` | reload (H:1007) | host |
+
+**Doctor.** `r` and Enter ✓ (Enter since fix-68).
+
+**Splash.** Any key enters (H:609) — ✗ **footer**: the boot text says
+"press any key" and only `s` moves on.
+
+Of the demo's own keys, `q`, `a` and `m` sit on keys azerty moves; the
+demo binds no digits and no punctuation.
